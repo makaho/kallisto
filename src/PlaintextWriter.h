@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "KmerIndex.h"
+#include "EMAlgorithm.h"
 
 void plaintext_writer(
     const std::string& out_name,
@@ -18,6 +19,12 @@ void plaintext_writer(
     const std::vector<double>& eff_lens,
     const std::vector<int>& lens
     );
+
+void plaintext_writer_single_cell(
+	const std::string& out_name,
+	const std::vector<std::string>& cellID,
+	const std::vector<EMAlgorithm>& emas
+	);
 
 std::string to_json(const std::string& id, const std::string& val, bool quote,
     bool comma = true, int level = 1);

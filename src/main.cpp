@@ -1778,7 +1778,7 @@ int main(int argc, char *argv[]) {
 			std::string call = argv_to_string(argc, argv);
 
 			//save tsv
-			my_plaintext_writer(opt.output + "/abundance.tsv", opt.batch_ids,
+			plaintext_writer_single_cell(opt.output + "/abundance.tsv", opt.batch_ids,
 				ems);
 
 			plaintext_aux(
@@ -1823,68 +1823,3 @@ int main(int argc, char *argv[]) {
   return 0;
 }
 
-std::vector<double> my_counts_to_tpm(const std::vector<double>& est_counts,
-	const std::vector<double>& eff_lens) {
-	assert(est_counts.size() == eff_lens.size());
-	const double MILLION{ 1e6 };
-
-	std::vector<double> tpm(est_counts.size(), 0.0);
-
-	double total_mass = 0.0;
-
-	for (size_t i = 0; i < est_counts.size(); ++i) {
-		if (eff_lens[i] < 1.0) {
-			std::cerr << "Why is this eff_len < 1.0? id: " << i << std::endl;
-		}
-		tpm[i] = (est_counts[i] / eff_lens[i]);
-		total_mass += tpm[i];
-	}
-
-	for (size_t i = 0; i < est_counts.size(); ++i) {
-		tpm[i] = (tpm[i] / total_mass) * MILLION;
-	}
-
-	return tpm;
-}
-
-void my_plaintext_writer(
-	const std::string& out_name,
-	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas
-) {
-
-	std::ofstream of;
-	of.open(out_name);
-
-	if (!of.is_open()) {
-		std::cerr << "Error: Couldn't open file: " << out_name << std::endl;
-
-		exit(1);
-	}
-
-	std::vector<std::vector<double>> tpms;
-	for (auto i = 0; i < cellID.size(); ++i) {
-		tpms.push_back(my_counts_to_tpm(emas[i].alpha_, emas[i].eff_lens_));
-	}
-
-	of << "target_id" << "\t";
-	for (auto i = 0; i < cellID.size() - 1; ++i) {
-		of << cellID[i] << '\t';
-	}
-	of << cellID[cellID.size() - 1] << std::endl;
-
-	for (auto i = 0; i < emas[0].alpha_.size(); ++i) {
-		of << emas[0].target_names_[i] << '\t';
-		for (auto j = 0; j < emas.size() - 1; ++j) {
-			of << emas[j].counts_[i] << '\t';
-			// or use tpm if needed
-			of << tpms[i][j] << '\t';
-		}
-		//use estimated counts
-		of << emas[cellID.size() - 1].counts_[i] << std::endl;
-		// or use tpm if needed
-		of << tpms[cellID.size() - 1][i] << std::endl;
-	}
-
-	of.close();
-}

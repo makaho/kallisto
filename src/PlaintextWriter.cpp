@@ -62,6 +62,49 @@ void plaintext_writer(
   of.close();
 }
 
+
+void plaintext_writer_single_cell (
+	const std::string& out_name,
+	const std::vector<std::string>& cellID,
+	const std::vector<EMAlgorithm>& emas
+) {
+
+	std::ofstream of;
+	of.open(out_name);
+
+	if (!of.is_open()) {
+		std::cerr << "Error: Couldn't open file: " << out_name << std::endl;
+
+		exit(1);
+	}
+
+	std::vector<std::vector<double>> tpms;
+	for (auto i = 0; i < cellID.size(); ++i) {
+		tpms.push_back(counts_to_tpm(emas[i].alpha_, emas[i].eff_lens_));
+	}
+
+	of << "target_id" << "\t";
+	for (auto i = 0; i < cellID.size() - 1; ++i) {
+		of << cellID[i] << '\t';
+	}
+	of << cellID[cellID.size() - 1] << std::endl;
+
+	for (auto i = 0; i < emas[0].alpha_.size(); ++i) {
+		of << emas[0].target_names_[i] << '\t';
+		for (auto j = 0; j < emas.size() - 1; ++j) {
+			of << emas[j].counts_[i] << '\t';
+			// or use tpm if needed
+			of << tpms[i][j] << '\t';
+		}
+		//use estimated counts
+		of << emas[cellID.size() - 1].counts_[i] << std::endl;
+		// or use tpm if needed
+		of << tpms[cellID.size() - 1][i] << std::endl;
+	}
+
+	of.close();
+}
+
 std::string to_json(const std::string& id, const std::string& val, bool quote,
     bool comma, int level) {
   std::string out;
