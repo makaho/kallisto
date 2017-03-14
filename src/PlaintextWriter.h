@@ -23,7 +23,8 @@ void plaintext_writer(
 void plaintext_writer_single_cell(
 	const std::string& out_name,
 	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas
+	const std::vector<EMAlgorithm>& emas,
+	const bool estimated_counts
 	);
 
 std::string to_json(const std::string& id, const std::string& val, bool quote,

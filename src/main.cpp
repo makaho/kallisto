@@ -29,12 +29,6 @@
 
 using namespace std;
 
-void my_plaintext_writer(
-	const std::string& out_name,
-	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas
-);
-
 void ParseOptionsIndex(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
   int make_unique_flag = 0;
@@ -115,8 +109,6 @@ void ParseOptionsInspect(int argc, char **argv, ProgramOptions& opt) {
   }
   opt.index = argv[optind];
 }
-
-
 
 void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
@@ -412,7 +404,6 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   
 }
 
-
 void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 	int verbose_flag = 0;
 	int single_flag = 0;
@@ -420,7 +411,7 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 	int pbam_flag = 0;
 	int umi_flag = 0;
 
-	const char *opt_string = "t:i:l:s:o:b:";
+	const char *opt_string = "t:i:l:s:o:b:e:";
 	static struct option long_options[] = {
 		// long args
 		{ "verbose", no_argument, &verbose_flag, 1 },
@@ -428,6 +419,7 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 		//{"strand-specific", no_argument, &strand_flag, 1},
 		{ "pseudobam", no_argument, &pbam_flag, 1 },
 		{ "umi", no_argument, &umi_flag, 'u' },
+		{ "estimated-counts", no_argument, 0, 'e' },
 		{ "batch", required_argument, 0, 'b' },
 		// short args
 		{ "threads", required_argument, 0, 't' },
@@ -472,6 +464,10 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 		case 'b': {
 			opt.batch_mode = true;
 			opt.batch_file_name = optarg;
+			break;
+		}
+		case 'e': {
+			opt.estimated_counts = true;
 			break;
 		}
 		default: break;
@@ -1779,7 +1775,7 @@ int main(int argc, char *argv[]) {
 
 			//save tsv
 			plaintext_writer_single_cell(opt.output + "/abundance.tsv", opt.batch_ids,
-				ems);
+				ems, opt.estimated_counts);
 
 			plaintext_aux(
 				opt.output + "/run_info.json",

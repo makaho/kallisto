@@ -34,6 +34,7 @@ struct ProgramOptions {
   bool bias;
   bool pseudobam;
   bool make_unique;
+  bool estimated_counts;
   enum class StrandType {None, FR, RF};
   StrandType strand;
   bool umi;
@@ -60,7 +61,8 @@ ProgramOptions() :
   pseudobam(false),
   make_unique(false),
   strand(StrandType::None),
-  umi(false)
+  umi(false),
+  estimated_counts(false)
   {}
 };
 

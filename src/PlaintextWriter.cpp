@@ -66,7 +66,8 @@ void plaintext_writer(
 void plaintext_writer_single_cell (
 	const std::string& out_name,
 	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas
+	const std::vector<EMAlgorithm>& emas,
+	const bool estimated_counts
 ) {
 
 	std::ofstream of;
@@ -96,10 +97,13 @@ void plaintext_writer_single_cell (
 			// or use tpm if needed
 			of << tpms[i][j] << '\t';
 		}
-		//use estimated counts
-		of << emas[cellID.size() - 1].counts_[i] << std::endl;
-		// or use tpm if needed
-		of << tpms[cellID.size() - 1][i] << std::endl;
+		if (estimated_counts) {
+			//use estimated counts
+			of << emas[cellID.size() - 1].counts_[i] << std::endl;
+		} else {
+			// or use tpm if needed
+			of << tpms[cellID.size() - 1][i] << std::endl;
+		}
 	}
 
 	of.close();
