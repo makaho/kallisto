@@ -93,9 +93,15 @@ void plaintext_writer_single_cell (
 	for (auto i = 0; i < emas[0].alpha_.size(); ++i) {
 		of << emas[0].target_names_[i] << '\t';
 		for (auto j = 0; j < emas.size() - 1; ++j) {
-			of << emas[j].counts_[i] << '\t';
+			if (estimated_counts) {
+				//use estimated counts
+				of << emas[j].counts_[i] << '\t';
+			}
+			else {
+				// or use tpm if needed
+				of << tpms[i][j] << '\t';
+			}
 			// or use tpm if needed
-			of << tpms[i][j] << '\t';
 		}
 		if (estimated_counts) {
 			//use estimated counts
