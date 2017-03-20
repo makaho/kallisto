@@ -1754,7 +1754,9 @@ int main(int argc, char *argv[]) {
 				EMAlgorithm em(batchCounts[i], index, collection, fl_means, opt);
 				em.run(10000, 50, true, opt.bias);
 				ems.push_back(em);
+				batchCounts[i].clear();
 			}
+			batchCounts.clear();
 
 			std::string call = argv_to_string(argc, argv);
 

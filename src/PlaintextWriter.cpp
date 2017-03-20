@@ -74,8 +74,7 @@ void plaintext_writer_single_cell (
 	of.open(out_name);
 
 	if (!of.is_open()) {
-		std::cerr << "Error: Couldn't open file: " << out_name << std::endl;
-
+		std::cerr << "Error: Couldn't open file: " << out_name << std::endl; std::cerr.flush();
 		exit(1);
 	}
 
@@ -90,7 +89,7 @@ void plaintext_writer_single_cell (
 	}
 	of << cellID[cellID.size() - 1] << std::endl;
 
-	for (auto i = 0; i < emas[0].alpha_.size(); ++i) {
+	for (auto i = 0; i < emas[0].target_names_.size(); ++i) {
 		of << emas[0].target_names_[i] << '\t';
 		for (auto j = 0; j < emas.size() - 1; ++j) {
 			if (estimated_counts) {
@@ -99,7 +98,7 @@ void plaintext_writer_single_cell (
 			}
 			else {
 				// or use tpm if needed
-				of << tpms[i][j] << '\t';
+				of << tpms[j][i] << '\t';
 			}
 			// or use tpm if needed
 		}
@@ -111,7 +110,6 @@ void plaintext_writer_single_cell (
 			of << tpms[cellID.size() - 1][i] << std::endl;
 		}
 	}
-
 	of.close();
 }
 
