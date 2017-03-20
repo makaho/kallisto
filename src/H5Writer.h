@@ -19,6 +19,10 @@ class H5Writer {
         const std::vector<std::string>& targ_ids,
         const std::vector<int>& lengths);
 
+	void write_single_main(const std::vector<EMAlgorithm>& ems,
+		const std::vector<std::string>& targ_ids,
+		const std::vector<int>& lengths);
+
     void write_bootstrap(const EMAlgorithm& em, int bs_id);
 
   private:

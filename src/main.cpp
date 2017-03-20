@@ -1324,6 +1324,7 @@ void usageSinglecell(bool valid_input = true) {
 		<< "-u  --umi                     First file in pair is a UMI file" << endl
 		<< "-b  --batch=FILE              Process files listed in FILE" << endl
 		<< "    --single                  Quantify single-end reads" << endl
+		<< "-e                            Export estimated counts (default: TPMs)" << endl
 		<< "-l, --fragment-length=DOUBLE  Estimated average fragment length" << endl
 		<< "-s, --sd=DOUBLE               Estimated standard deviation of fragment length" << endl
 		<< "                              (default: value is estimated from the input data)" << endl
@@ -1718,15 +1719,9 @@ int main(int argc, char *argv[]) {
 
 			std::vector<std::vector<int>> batchCounts;
 			num_processed = ProcessBatchReads(index, opt, collection, batchCounts);
-			/*
-			for (int i = 0; i < opt.batch_ids.size(); i++) {
-			std::fill(collection.counts.begin(), collection.counts.end(),0);
-			opt.files = opt.batch_files[i];
-			num_processed += ProcessReads(index, opt, collection);
-			batchCounts.push_back(collection.counts);
-			}
-			*/
-			writeBatchMatrix((opt.output + "/matrix"), index, opt.batch_ids, batchCounts);
+
+			//TODO: Check if still needed / if it outputs proper info
+			//writeBatchMatrix((opt.output + "/matrix"), index, opt.batch_ids, batchCounts);
 
 			// save modified index for future use
 			if (opt.write_index) {
@@ -1745,10 +1740,6 @@ int main(int argc, char *argv[]) {
 				collection.init_mean_fl_trunc(mean_fl, sd_fl);
 				//fld.resize(MAX_FRAG_LEN,0); // no obersvations
 				fld = trunc_gaussian_counts(0, MAX_FRAG_LEN, mean_fl, sd_fl, 10000);
-
-				// for (size_t i = 0; i < collection.mean_fl_trunc.size(); ++i) {
-				//   cout << "--- " << i << '\t' << collection.mean_fl_trunc[i] << endl;
-				// }
 			}
 
 			std::vector<int> preBias(4096, 1);
@@ -1758,12 +1749,6 @@ int main(int argc, char *argv[]) {
 
 			auto fl_means = get_frag_len_means(index.target_lens_, collection.mean_fl_trunc);
 
-			/*for (int i = 0; i < collection.bias3.size(); i++) {
-			std::cout << i << "\t" << collection.bias3[i] << "\t" << collection.bias5[i] << "\n";
-			}*/
-
-
-			//TODO: should be run for every batch (cell) individually...
 			std::vector<EMAlgorithm> ems;
 			for (int i = 0; i < batchCounts.size(); i++) {
 				EMAlgorithm em(batchCounts[i], index, collection, fl_means, opt);
@@ -1776,6 +1761,13 @@ int main(int argc, char *argv[]) {
 			//save tsv
 			plaintext_writer_single_cell(opt.output + "/abundance.tsv", opt.batch_ids,
 				ems, opt.estimated_counts);
+
+			//save h5 as well
+			H5Writer writer;
+			// setting num_processed to 0 because quant-only is for debugging/special ops
+			writer.init(opt.output + "/abundance.h5", opt.bootstrap, 0, fld, preBias, ems[0].post_bias_, 6,
+				index.INDEX_VERSION, call, start_time);
+			writer.write_single_main(ems, index.target_names_, index.target_lens_);
 
 			plaintext_aux(
 				opt.output + "/run_info.json",

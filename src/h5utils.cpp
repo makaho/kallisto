@@ -60,6 +60,18 @@ hid_t get_datatype_id(const std::vector<int>& v) {
   return H5T_NATIVE_INT;
 }
 
+hid_t get_datatype_id(const double& v) {
+	//v.size(); // shutup, compiler
+	//auto w = v*1;
+	return H5T_NATIVE_DOUBLE;
+}
+
+hid_t get_datatype_id(const int& v) {
+	//v.size(); // shutup, compiler
+	//auto w = v * 1;
+	return H5T_NATIVE_INT;
+}
+
 void read_vector(
     hid_t dataset_id,
     hid_t datatype_id,

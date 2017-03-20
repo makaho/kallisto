@@ -26,6 +26,10 @@ hid_t get_datatype_id(const std::vector<double>& v);
 
 hid_t get_datatype_id(const std::vector<int>& v);
 
+hid_t get_datatype_id(const double& v);
+
+hid_t get_datatype_id(const int& v);
+
 // str_vec: a vector of string to be written out
 // group_id: a group_id which has already been opened
 // dataset_name: the to write out to
@@ -85,6 +89,62 @@ herr_t vector_to_h5(
   return status;
 }
 
+// str_vec: a vector of string to be written out
+// group_id: a group_id which has already been opened
+// dataset_name: the to write out to
+// release_type: if 'true', release the datatype and ptr
+// compression_level: the level of compression (6 seems reasonable)
+//
+// return: the status of H5Dwrite (last H5 operation)
+template <typename T>
+herr_t vector2d_to_h5(
+	const T& str_vec,
+	hid_t group_id,
+	const std::string& dataset_name,
+	bool release_type,
+	int dim,
+	hsize_t dims[],
+	uint compression_level = 6
+) {
+	herr_t status;
+
+	// create the propery which allows for compression
+	hid_t prop_id = H5Pcreate(H5P_DATASET_CREATE);
+	// chunk size is same size as vector
+	status = H5Pset_chunk(prop_id, dim, dims);
+	assert(status >= 0);
+
+	status = H5Pset_deflate(prop_id, compression_level);
+	assert(status >= 0);
+
+	// create the data type
+	hid_t datatype_id = get_datatype_id(str_vec[0]);
+
+	// create the dataspace
+	hid_t dataspace_id = H5Screate_simple(dim, dims, NULL);
+
+	// create the dataset
+	hid_t dataset_id = H5Dcreate(group_id, dataset_name.c_str(), datatype_id,
+		dataspace_id, H5P_DEFAULT, prop_id, H5P_DEFAULT);
+
+	// get the ptrs from the string and write out
+	status = H5Dwrite(dataset_id, datatype_id, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+		str_vec);
+	assert(status >= 0);
+
+	status = H5Pclose(prop_id);
+	assert(status >= 0);
+	status = H5Dclose(dataset_id);
+	assert(status >= 0);
+	status = H5Sclose(dataspace_id);
+	assert(status >= 0);
+	if (release_type) {
+		status = H5Tclose(datatype_id);
+		assert(status >= 0);
+	}
+
+	return status;
+}
 // end: writing utils
 
 // begin: reading utils
