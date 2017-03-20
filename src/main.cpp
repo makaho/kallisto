@@ -1324,7 +1324,7 @@ void usageSinglecell(bool valid_input = true) {
 		<< "-u  --umi                     First file in pair is a UMI file" << endl
 		<< "-b  --batch=FILE              Process files listed in FILE" << endl
 		<< "    --single                  Quantify single-end reads" << endl
-		<< "-e                            Export estimated counts (default: TPMs)" << endl
+		<< "-e                            Export estimated counts in plaintext mode (default: TPMs)" << endl
 		<< "-l, --fragment-length=DOUBLE  Estimated average fragment length" << endl
 		<< "-s, --sd=DOUBLE               Estimated standard deviation of fragment length" << endl
 		<< "                              (default: value is estimated from the input data)" << endl
@@ -1698,7 +1698,7 @@ int main(int argc, char *argv[]) {
         cerr << endl;
       }
 	}
-	else if (cmd == "single") {
+	else if (cmd == "singlecell") {
 		if (argc == 2) {
 			usageSinglecell();
 			return 0;
