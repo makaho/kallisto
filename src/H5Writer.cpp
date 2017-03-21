@@ -62,31 +62,15 @@ void H5Writer::write_main(const EMAlgorithm& em,
   vector_to_h5(lengths, aux_, "lengths", false, compression_);
 }
 
-void H5Writer::write_single_main(const std::vector<EMAlgorithm>& ems,
+void H5Writer::write_single_main(int numberOfCells, double* alphas, double* eff_lengths,
 	const std::vector<std::string>& targ_ids,
 	const std::vector<int>& lengths) {
 	vector_to_h5(targ_ids, aux_, "ids", true, compression_);
 	vector_to_h5(lengths, aux_, "lengths", false, compression_);
 
-	hsize_t dims[] = { ems.size(),ems[0].alpha_.size() };
-	double* alphas = new double[ems.size()*ems[0].alpha_.size()];
-	//copy
-	for (auto i = 0; i < ems.size(); ++i) {
-		for (auto j = 0; j < ems[0].alpha_.size(); ++j) {
-			alphas[(i*ems[0].alpha_.size()) + j] = ems[i].alpha_[j];
-		}
-	}
+	hsize_t dims[] = { (hsize_t) numberOfCells, targ_ids.size() };
 	vector2d_to_h5(alphas, aux_, "est_counts", false, 2, dims, compression_);
-	delete[] alphas;
-	double* eff_lens = new double[ems.size()*ems[0].eff_lens_.size()];
-	//copy
-	for (auto i = 0; i < ems.size(); ++i) {
-		for (auto j = 0; j < ems[0].eff_lens_.size(); ++j) {
-			eff_lens[(i*ems[0].eff_lens_.size()) + j] = ems[i].eff_lens_[j];
-		}
-	}
-	vector2d_to_h5(eff_lens, aux_, "eff_lengths", false, 2, dims, compression_);
-	delete[] eff_lens;
+	vector2d_to_h5(eff_lengths, aux_, "eff_lengths", false, 2, dims, compression_);
 }
 
 void H5Writer::write_bootstrap(const EMAlgorithm& em, int bs_id) {

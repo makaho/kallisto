@@ -24,6 +24,33 @@ std::vector<double> counts_to_tpm(const std::vector<double>& est_counts,
   return tpm;
 }
 
+double* counts_to_tpm(int number_of_cells, int length, double* est_counts, double* eff_lens) {
+	double* tpm = new double[number_of_cells*length];
+
+	for (int j = 0; j < number_of_cells; ++j) {
+		const double MILLION{ 1e6 };
+		
+		for (int i = 0; i < length; ++i) {
+			tpm[(i*number_of_cells) + j] = 0.0;
+		}
+
+		double total_mass = 0.0;
+
+		for (size_t i = 0; i < length; ++i) {
+			if (eff_lens[(i*number_of_cells) + j] < 1.0) {
+				std::cerr << "Why is this eff_len < 1.0? id: " << i << std::endl;
+			}
+			tpm[(i*number_of_cells) + j] = (est_counts[(i*number_of_cells) + j] / eff_lens[(i*number_of_cells) + j]);
+			total_mass += tpm[(i*number_of_cells) + j];
+		}
+
+		for (size_t i = 0; i < length; ++i) {
+			tpm[(i*number_of_cells) + j] = (tpm[(i*number_of_cells) + j] / total_mass) * MILLION;
+		}
+	}
+	return tpm;
+}
+
 void plaintext_writer(
     const std::string& out_name,
     const std::vector<std::string>& targ_ids,
@@ -66,7 +93,9 @@ void plaintext_writer(
 void plaintext_writer_single_cell (
 	const std::string& out_name,
 	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas,
+	const std::vector<std::string>& target_names,
+	double* alphas,
+	double* eff_counts,
 	const bool estimated_counts
 ) {
 
@@ -78,10 +107,8 @@ void plaintext_writer_single_cell (
 		exit(1);
 	}
 
-	std::vector<std::vector<double>> tpms;
-	for (auto i = 0; i < cellID.size(); ++i) {
-		tpms.push_back(counts_to_tpm(emas[i].alpha_, emas[i].eff_lens_));
-	}
+	double* tpms;
+	tpms = counts_to_tpm(cellID.size(), target_names.size(), alphas, eff_counts);
 
 	of << "target_id" << "\t";
 	for (auto i = 0; i < cellID.size() - 1; ++i) {
@@ -89,28 +116,31 @@ void plaintext_writer_single_cell (
 	}
 	of << cellID[cellID.size() - 1] << std::endl;
 
-	for (auto i = 0; i < emas[0].target_names_.size(); ++i) {
-		of << emas[0].target_names_[i] << '\t';
-		for (auto j = 0; j < emas.size() - 1; ++j) {
+	int number_of_cells = cellID.size();
+
+	for (auto i = 0; i < target_names.size(); ++i) {
+		of << target_names[i] << '\t';
+		for (auto j = 0; j < cellID.size() - 1; ++j) {
 			if (estimated_counts) {
 				//use estimated counts
-				of << emas[j].counts_[i] << '\t';
+				of << eff_counts[(i*number_of_cells) + j] << '\t';
 			}
 			else {
 				// or use tpm if needed
-				of << tpms[j][i] << '\t';
+				of << tpms[(i*number_of_cells) + j] << '\t';
 			}
 			// or use tpm if needed
 		}
 		if (estimated_counts) {
 			//use estimated counts
-			of << emas[cellID.size() - 1].counts_[i] << std::endl;
+			of << eff_counts[(i*number_of_cells) + cellID.size() - 1] << std::endl;
 		} else {
 			// or use tpm if needed
-			of << tpms[cellID.size() - 1][i] << std::endl;
+			of << tpms[(i*number_of_cells) + cellID.size() - 1] << std::endl;
 		}
 	}
 	of.close();
+	delete tpms;
 }
 
 std::string to_json(const std::string& id, const std::string& val, bool quote,

@@ -1749,12 +1749,25 @@ int main(int argc, char *argv[]) {
 
 			auto fl_means = get_frag_len_means(index.target_lens_, collection.mean_fl_trunc);
 
-			std::vector<EMAlgorithm> ems;
-			for (int i = 0; i < batchCounts.size(); i++) {
-				EMAlgorithm em(batchCounts[i], index, collection, fl_means, opt);
-				em.run(10000, 50, true, opt.bias);
-				ems.push_back(em);
-				batchCounts[i].clear();
+			int number_of_cells = batchCounts.size();
+			int number_of_targets = index.target_names_.size();
+			double* alphas = new double[number_of_cells*index.target_names_.size()];
+			double* eff_lens = new double[number_of_cells*index.target_names_.size()];
+
+			std::vector<double> post_bias;
+			for (int j = 0; j < number_of_cells; j++) {
+				EMAlgorithm *em = new EMAlgorithm(batchCounts[j], index, collection, fl_means, opt);
+				em->run(10000, 50, true, opt.bias);
+				if (j == 0) {
+					post_bias = em->post_bias_;
+				}
+				batchCounts[j].clear();
+				//copy
+				for (auto i = 0; i < number_of_targets; ++i) {
+					alphas  [(i*number_of_cells) + j] = em->alpha_[i];
+					eff_lens[(i*number_of_cells) + j] = em->eff_lens_[i];
+				}
+				delete em;
 			}
 			batchCounts.clear();
 
@@ -1762,14 +1775,14 @@ int main(int argc, char *argv[]) {
 
 			//save tsv
 			plaintext_writer_single_cell(opt.output + "/abundance.tsv", opt.batch_ids,
-				ems, opt.estimated_counts);
+				index.target_names_, alphas, eff_lens, opt.estimated_counts);
 
 			//save h5 as well
 			H5Writer writer;
 			// setting num_processed to 0 because quant-only is for debugging/special ops
-			writer.init(opt.output + "/abundance.h5", opt.bootstrap, 0, fld, preBias, ems[0].post_bias_, 6,
+			writer.init(opt.output + "/abundance.h5", opt.bootstrap, 0, fld, preBias, post_bias, 6,
 				index.INDEX_VERSION, call, start_time);
-			writer.write_single_main(ems, index.target_names_, index.target_lens_);
+			writer.write_single_main(number_of_cells, alphas, eff_lens, index.target_names_, index.target_lens_);
 
 			plaintext_aux(
 				opt.output + "/run_info.json",
@@ -1780,6 +1793,9 @@ int main(int argc, char *argv[]) {
 				std::string(std::to_string(index.INDEX_VERSION)),
 				start_time,
 				call);
+
+			delete[] alphas;
+			delete[] eff_lens;
 
 		}
 	} else if (cmd == "h5dump") {

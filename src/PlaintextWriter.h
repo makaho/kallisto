@@ -23,7 +23,9 @@ void plaintext_writer(
 void plaintext_writer_single_cell(
 	const std::string& out_name,
 	const std::vector<std::string>& cellID,
-	const std::vector<EMAlgorithm>& emas,
+	const std::vector<std::string>& target_names,
+	double* alphas,
+	double* eff_counts,
 	const bool estimated_counts
 	);
 

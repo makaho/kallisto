@@ -19,7 +19,7 @@ class H5Writer {
         const std::vector<std::string>& targ_ids,
         const std::vector<int>& lengths);
 
-	void write_single_main(const std::vector<EMAlgorithm>& ems,
+	void write_single_main(int numberOfCells, double* alphas, double* eff_lengths,
 		const std::vector<std::string>& targ_ids,
 		const std::vector<int>& lengths);
 
