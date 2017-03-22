@@ -1779,8 +1779,7 @@ int main(int argc, char *argv[]) {
 
 			//save h5 as well
 			H5Writer writer;
-			// setting num_processed to 0 because quant-only is for debugging/special ops
-			writer.init(opt.output + "/abundance.h5", opt.bootstrap, 0, fld, preBias, post_bias, 6,
+			writer.init(opt.output + "/abundance.h5", opt.bootstrap, num_processed, fld, preBias, post_bias, 6,
 				index.INDEX_VERSION, call, start_time);
 			writer.write_single_main(number_of_cells, alphas, eff_lens, index.target_names_, index.target_lens_);
 
