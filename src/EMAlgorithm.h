@@ -43,7 +43,7 @@ struct EMAlgorithm {
   {
     assert(all_fl_means.size() == index_.target_lens_.size());
     eff_lens_ = calc_eff_lens(index_.target_lens_, all_fl_means);
-    weight_map_ = calc_weights (tc_.counts, ecmap_, eff_lens_);    
+	weight_map_ = calc_weights (tc_.counts, ecmap_, eff_lens_);
     assert(target_names_.size() == eff_lens_.size());
   }
 
@@ -61,7 +61,7 @@ struct EMAlgorithm {
     bool finalRound = false;
 
     if (verbose) {
-      std::cerr << "[   em] quantifying the abundances ..."; std::cerr.flush();
+      std::cerr << "[   em] quantifying the abundances ..." << std::endl; std::cerr.flush();
     }
 
     int i;
@@ -178,10 +178,8 @@ struct EMAlgorithm {
     }
 
     if (verbose) {
-      std::cerr << " done" << std::endl;
       std::cerr << "[   em] the Expectation-Maximization algorithm ran for "
-        << pretty_num(i) << " rounds";
-      std::cerr << std::endl;
+        << pretty_num(i) << " rounds" << std::endl;
       std::cerr.flush();
     }
 

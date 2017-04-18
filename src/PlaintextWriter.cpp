@@ -38,7 +38,7 @@ double* counts_to_tpm(int number_of_cells, int length, double* est_counts, doubl
 
 		for (size_t i = 0; i < length; ++i) {
 			if (eff_lens[(i*number_of_cells) + j] < 1.0) {
-				std::cerr << "Why is this eff_len < 1.0? id: " << i << std::endl;
+				std::cerr << "Why is this eff_len < 1.0? cell: " << j << " id: " << i << std::endl;
 			}
 			tpm[(i*number_of_cells) + j] = (est_counts[(i*number_of_cells) + j] / eff_lens[(i*number_of_cells) + j]);
 			total_mass += tpm[(i*number_of_cells) + j];

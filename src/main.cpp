@@ -1380,6 +1380,20 @@ std::string get_local_time() {
   return ret.substr(0, ret.size() - 1);
 }
 
+void RunEM(std::vector<std::vector<int>>& batchCounts, int offset, int length, KmerIndex& index, MinCollector& collection, const std::vector<double>& fl_means, ProgramOptions &opt, int number_of_cells, int number_of_targets, double* alphas, double* eff_lens) {
+	for (int j = offset; j < offset+length; j++) {
+		EMAlgorithm em(batchCounts[j], index, collection, fl_means, opt);
+		em.run(10000, 50, true, true);
+		batchCounts[j].clear();
+		//copy
+		for (int i = 0; i < number_of_targets; ++i) {
+			alphas[(i*number_of_cells) + j] = em.alpha_[i];
+			eff_lens[(i*number_of_cells) + j] = em.eff_lens_[i];
+		}
+		//delete em;
+	}
+}
+
 int main(int argc, char *argv[]) {
   std::cout.sync_with_stdio(false);
   setvbuf(stdout, NULL, _IOFBF, 1048576);
@@ -1768,20 +1782,53 @@ int main(int argc, char *argv[]) {
 			double* eff_lens = new double[number_of_cells*index.target_names_.size()];
 
 			std::vector<double> post_bias;
-			for (int j = 0; j < number_of_cells; j++) {
-				EMAlgorithm *em = new EMAlgorithm(batchCounts[j], index, collection, fl_means, opt);
-				em->run(10000, 50, true, opt.bias);
-				if (j == 0) {
-					post_bias = em->post_bias_;
+			if (opt.threads < 1) {
+				for (int j = 0; j < number_of_cells; j++) {
+					EMAlgorithm *em = new EMAlgorithm(batchCounts[j], index, collection, fl_means, opt);
+					em->run(10000, 50, true, opt.bias);
+					if (j == 0) {
+						post_bias = em->post_bias_;
+					}
+					batchCounts[j].clear();
+					//copy
+					for (auto i = 0; i < number_of_targets; ++i) {
+						alphas[(i*number_of_cells) + j] = em->alpha_[i];
+						eff_lens[(i*number_of_cells) + j] = em->eff_lens_[i];
+					}
+					delete em;
 				}
-				batchCounts[j].clear();
+			} else {
+				index.loadTranscriptSequences();
+				//calculate 0 first to be able to store post_bias
+				EMAlgorithm *em = new EMAlgorithm(batchCounts[0], index, collection, fl_means, opt);
+				em->run(10000, 50, true, opt.bias);
+				post_bias = em->post_bias_;
+				batchCounts[0].clear();
 				//copy
 				for (auto i = 0; i < number_of_targets; ++i) {
-					alphas  [(i*number_of_cells) + j] = em->alpha_[i];
-					eff_lens[(i*number_of_cells) + j] = em->eff_lens_[i];
+					alphas[(i*number_of_cells) + 0] = em->alpha_[i];
+					eff_lens[(i*number_of_cells) + 0] = em->eff_lens_[i];
 				}
 				delete em;
+				int steps = (int)(ceil((double)(number_of_cells-1) / (double)opt.threads));
+
+				std::vector<std::thread> workers;
+				for (int i = 0; i < opt.threads; i++) {
+					//TODO determine proper values
+					int offset = i*steps + 1;
+					int length = steps;
+					if (offset + length > number_of_cells) {
+						length = number_of_cells - offset;
+					}
+					workers.emplace_back(std::thread(RunEM, std::ref(batchCounts), offset, length, std::ref(index), std::ref(collection), std::ref(fl_means), std::ref(opt), number_of_cells, number_of_targets, std::ref(alphas), std::ref(eff_lens)));
+				}
+				for (int i = 0; i < opt.threads; i++) {
+					workers[i].join(); //wait for them to finish
+				}
 			}
+			std::cerr << "EM done" << std::endl;
+			std::cerr.flush();
+
 			batchCounts.clear();
 
 			std::string call = argv_to_string(argc, argv);
