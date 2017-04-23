@@ -121,7 +121,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int fusion_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:n:m:d:b:";
+  const char *opt_string = "t:i:l:s:o:n:m:d:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -143,6 +143,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     {"iterations", required_argument, 0, 'n'},
     {"min-range", required_argument, 0, 'm'},
     {"bootstrap-samples", required_argument, 0, 'b'},
+	{"output_filename_prefix", required_argument, 0, 'p'},
     {0,0,0,0}
   };
   int c;
@@ -173,10 +174,14 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
       stringstream(optarg) >> opt.sd;
       break;
     }
-    case 'o': {
-      opt.output = optarg;
-      break;
-    }
+	case 'o': {
+		opt.output = optarg;
+		break;
+	}
+	case 'p': {
+		opt.output_filename_prefix = optarg;
+		break;
+	}
     case 'n': {
       stringstream(optarg) >> opt.iterations;
       break;
@@ -244,7 +249,7 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
   int plaintext_flag = 0;
 
-  const char *opt_string = "t:s:l:s:o:n:m:d:b:";
+  const char *opt_string = "t:s:l:s:o:n:m:d:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -258,7 +263,8 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
     {"iterations", required_argument, 0, 'n'},
     {"min-range", required_argument, 0, 'm'},
     {"bootstrap-samples", required_argument, 0, 'b'},
-    {0,0,0,0}
+	{ "output_filename_prefix", required_argument, 0, 'p' },
+	{0,0,0,0}
   };
   int c;
   int option_index = 0;
@@ -288,7 +294,11 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
       opt.output = optarg;
       break;
     }
-    case 'n': {
+	case 'p': {
+		opt.output_filename_prefix = optarg;
+		break;
+	}
+	case 'n': {
       stringstream(optarg) >> opt.iterations;
       break;
     }
@@ -323,7 +333,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int umi_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:b:";
+  const char *opt_string = "t:i:l:s:o:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -338,7 +348,8 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"fragment-length", required_argument, 0, 'l'},
     {"sd", required_argument, 0, 's'},
     {"output-dir", required_argument, 0, 'o'},
-    {0,0,0,0}
+	{ "output_filename_prefix", required_argument, 0, 'p' },
+	{0,0,0,0}
   };
   int c;
   int option_index = 0;
@@ -372,7 +383,11 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
       opt.output = optarg;
       break;
     }
-    case 'b': {
+	case 'p': {
+		opt.output_filename_prefix = optarg;
+		break;
+	}
+	case 'b': {
       opt.batch_mode = true;
       opt.batch_file_name = optarg;
       break;
@@ -417,7 +432,7 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 	int pbam_flag = 0;
 	int umi_flag = 0;
 
-	const char *opt_string = "t:i:l:s:o:b:e:";
+	const char *opt_string = "t:i:l:s:o:b:e:p:";
 	static struct option long_options[] = {
 		// long args
 		{ "verbose", no_argument, &verbose_flag, 1 },
@@ -433,6 +448,7 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 		{ "fragment-length", required_argument, 0, 'l' },
 		{ "sd", required_argument, 0, 's' },
 		{ "output-dir", required_argument, 0, 'o' },
+		{ "output_filename_prefix", required_argument, 0, 'p' },
 		{ 0,0,0,0 }
 	};
 	int c;
@@ -465,6 +481,10 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 		}
 		case 'o': {
 			opt.output = optarg;
+			break;
+		}
+		case 'p': {
+			opt.output_filename_prefix = optarg;
 			break;
 		}
 		case 'b': {
@@ -1505,13 +1525,13 @@ int main(int argc, char *argv[]) {
 
         H5Writer writer;
         if (!opt.plaintext) {
-          writer.init(opt.output + "/abundance.h5", opt.bootstrap, num_processed, fld, preBias, em.post_bias_, 6,
+          writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, num_processed, fld, preBias, em.post_bias_, 6,
               index.INDEX_VERSION, call, start_time);
           writer.write_main(em, index.target_names_, index.target_lens_);
         }
 
         plaintext_aux(
-            opt.output + "/run_info.json",
+            opt.output + "/" + opt.output_filename_prefix + "run_info.json",
             std::string(std::to_string(index.num_trans)),
             std::string(std::to_string(opt.bootstrap)),
             std::string(std::to_string(num_processed)),
@@ -1520,7 +1540,7 @@ int main(int argc, char *argv[]) {
             start_time,
             call);
 
-        plaintext_writer(opt.output + "/abundance.tsv", em.target_names_,
+        plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", em.target_names_,
             em.alpha_, em.eff_lens_, index.target_lens_);
 
         if (opt.bootstrap > 0) {
@@ -1615,12 +1635,12 @@ int main(int argc, char *argv[]) {
 
         if (!opt.plaintext) {
           // setting num_processed to 0 because quant-only is for debugging/special ops
-          writer.init(opt.output + "/abundance.h5", opt.bootstrap, 0, fld, preBias, em.post_bias_, 6,
+          writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, 0, fld, preBias, em.post_bias_, 6,
               index.INDEX_VERSION, call, start_time);
           writer.write_main(em, index.target_names_, index.target_lens_);
         } else {
           plaintext_aux(
-              opt.output + "/run_info.json",
+              opt.output + "/" + opt.output_filename_prefix + "run_info.json",
               std::string(std::to_string(index.num_trans)),
               std::string(std::to_string(opt.bootstrap)),
               std::string(std::to_string(0)),
@@ -1629,7 +1649,7 @@ int main(int argc, char *argv[]) {
               start_time,
               call);
 
-          plaintext_writer(opt.output + "/abundance.tsv", em.target_names_,
+          plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", em.target_names_,
               em.alpha_, em.eff_lens_, index.target_lens_);
         }
 
@@ -1693,7 +1713,7 @@ int main(int argc, char *argv[]) {
 
         if (!opt.batch_mode) {
           num_processed = ProcessReads(index, opt, collection);
-          collection.write((opt.output + "/pseudoalignments"));
+          collection.write((opt.output + "/" + opt.output_filename_prefix + "pseudoalignments"));
         } else {
 
           std::vector<std::vector<int>> batchCounts;
@@ -1834,17 +1854,17 @@ int main(int argc, char *argv[]) {
 			std::string call = argv_to_string(argc, argv);
 
 			//save tsv
-			plaintext_writer_single_cell(opt.output + "/abundance.tsv", opt.batch_ids,
+			plaintext_writer_single_cell(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", opt.batch_ids,
 				index.target_names_, alphas, eff_lens, opt.estimated_counts);
 
 			//save h5 as well
 			H5Writer writer;
-			writer.init(opt.output + "/abundance.h5", opt.bootstrap, num_processed, fld, preBias, post_bias, 6,
+			writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, num_processed, fld, preBias, post_bias, 6,
 				index.INDEX_VERSION, call, start_time);
 			writer.write_single_main(number_of_cells, alphas, eff_lens, index.target_names_, index.target_lens_);
 
 			plaintext_aux(
-				opt.output + "/run_info.json",
+				opt.output + "/" + opt.output_filename_prefix + "run_info.json",
 				std::string(std::to_string(index.num_trans)),
 				std::string(std::to_string(opt.bootstrap)),
 				std::string(std::to_string(num_processed)),

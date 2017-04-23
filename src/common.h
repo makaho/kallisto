@@ -13,6 +13,7 @@ struct ProgramOptions {
   int k;
   int iterations;
   std::string output;
+  std::string output_filename_prefix;
   int skip;
   size_t seed;
   double fld;
@@ -64,7 +65,8 @@ ProgramOptions() :
   fusion(false),
   strand(StrandType::None),
   umi(false),
-  estimated_counts(false)
+  estimated_counts(false),
+  output_filename_prefix("")
   {}
 };
 
