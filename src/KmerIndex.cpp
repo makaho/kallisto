@@ -981,7 +981,7 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   buffer=nullptr;
 
   after = clock();
-  std::cout << "[index]" << (after - before) / 1000.0 << " seconds for loading index." << std::endl;
+  std::cout << "[index] " << (after - before) / 1000000.0 << " seconds for loading index." << std::endl;
  }
 
 
