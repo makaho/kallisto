@@ -9,6 +9,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <time.h> 
 
 #ifndef KSEQ_INIT_READY
 #define KSEQ_INIT_READY
@@ -789,6 +790,10 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 
   std::string& index_in = opt.index;
 
+  time_t before, after;
+
+  time(&before);
+
   int map_fd;
   char *index_map;
   struct stat sbuf;
@@ -996,6 +1001,9 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   // delete the buffer
   delete[] buffer;
   buffer=nullptr;
+
+  time(&after);
+  printf("%.f seconds for loading index.\n", difftime(after, before));
  }
 
 
