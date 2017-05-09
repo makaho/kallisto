@@ -5,6 +5,7 @@
 #include <zlib.h>
 #include <unordered_set>
 #include "kseq.h"
+#include <time.h> 
 
 #ifndef KSEQ_INIT_READY
 #define KSEQ_INIT_READY
@@ -786,6 +787,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   std::string& index_in = opt.index;
   std::ifstream in;
 
+  time_t before, after;
+  time(&before);
 
   in.open(index_in, std::ios::in | std::ios::binary);
 
@@ -965,7 +968,10 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   // delete the buffer
   delete[] buffer;
   buffer=nullptr;
-  
+
+  time(&after);
+  printf("%.f seconds for loading index.\n", difftime(after, before));
+
   in.close();
 }
 
