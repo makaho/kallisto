@@ -5,6 +5,10 @@
 #include <zlib.h>
 #include <unordered_set>
 #include "kseq.h"
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #ifndef KSEQ_INIT_READY
 #define KSEQ_INIT_READY
@@ -784,20 +788,28 @@ bool KmerIndex::fwStep(Kmer km, Kmer& end) const {
 void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 
   std::string& index_in = opt.index;
-  std::ifstream in;
 
+  int map_fd;
+  char *index_map;
+  struct stat sbuf;
+  size_t index_map_offset;
 
-  in.open(index_in, std::ios::in | std::ios::binary);
-
-  if (!in.is_open()) {
-    // TODO: better handling
-    std::cerr << "Error: index input file could not be opened!";
-    exit(1);
+  // find file size
+  if (stat(index_in.c_str(), &sbuf) == -1) {
+	  perror("stat failed");
+	  exit(1);
   }
 
+  map_fd = open(index_in.c_str(), O_RDONLY);
+  index_map = (char *)mmap(0, sbuf.st_size, PROT_READ, MAP_SHARED, map_fd, 0);
+  if (index_map == (caddr_t)(-1)) {
+	  perror("mmap failed");
+	  exit(1);
+  }
+ 
   // 1. read version
-  size_t header_version = 0;
-  in.read((char *)&header_version, sizeof(header_version));
+  size_t header_version = *(size_t*)(index_map+index_map_offset);
+  index_map_offset += sizeof(header_version);
 
   if (header_version != INDEX_VERSION) {
     std::cerr << "Error: incompatible indices. Found version " << header_version << ", expected version " << INDEX_VERSION << std::endl
@@ -806,7 +818,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   }
 
   // 2. read k
-  in.read((char *)&k, sizeof(k));
+  k = *(int*)(index_map+index_map_offset);
+  index_map_offset += sizeof(k);
   if (Kmer::k == 0) {
     //std::cerr << "[index] no k has been set, setting k = " << k << std::endl;
     Kmer::set_k(k);
@@ -821,21 +834,21 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   }
 
   // 3. read in number of targets
-  in.read((char *)&num_trans, sizeof(num_trans));
+  num_trans = *(int*)(index_map+index_map_offset);
+  index_map_offset += sizeof(num_trans);
 
   // 4. read in length of targets
   target_lens_.clear();
   target_lens_.reserve(num_trans);
 
   for (int i = 0; i < num_trans; i++) {
-    int tlen;
-    in.read((char *)&tlen, sizeof(tlen));
-    target_lens_.push_back(tlen);
+    target_lens_.push_back(*(int*)(index_map+index_map_offset));
+	index_map_offset += sizeof(int);
   }
 
   // 5. read number of k-mers
-  size_t kmap_size;
-  in.read((char *)&kmap_size, sizeof(kmap_size));
+  size_t kmap_size = *(size_t*)(index_map + index_map_offset);
+  index_map_offset += sizeof(kmap_size);
 
   std::cerr << "[index] k-mer length: " << k << std::endl;
   std::cerr << "[index] number of targets: " << pretty_num(num_trans)
@@ -852,8 +865,10 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   Kmer tmp_kmer;
   KmerEntry tmp_val;
   for (size_t i = 0; i < kmap_size; ++i) {
-    in.read((char *)&tmp_kmer, sizeof(tmp_kmer));
-    in.read((char *)&tmp_val, sizeof(tmp_val));
+	tmp_kmer = *(Kmer*)(index_map + index_map_offset);
+	index_map_offset  += sizeof(tmp_kmer);
+	tmp_val = *(KmerEntry*)(index_map + index_map_offset);
+	index_map_offset  += sizeof(tmp_val);
 
     if (loadKmerTable) {
       kmap.insert({tmp_kmer, tmp_val});
@@ -861,8 +876,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   }
 
   // 7. read number of equivalence classes
-  size_t ecmap_size;
-  in.read((char *)&ecmap_size, sizeof(ecmap_size));
+  size_t ecmap_size = *(size_t*)(index_map + index_map_offset);
+  index_map_offset += sizeof(ecmap_size);
 
   std::cerr << "[index] number of equivalence classes: "
     << pretty_num(ecmap_size) << std::endl;
@@ -872,18 +887,21 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   size_t vec_size;
   // 8. read each equiv class
   for (size_t ec = 0; ec < ecmap_size; ++ec) {
-    in.read((char *)&tmp_id, sizeof(tmp_id));
+
+	tmp_id = *(int*)(index_map + index_map_offset);
+	index_map_offset += sizeof(tmp_id);
 
     // 8.1 read size of equiv class
-    in.read((char *)&vec_size, sizeof(vec_size));
+	vec_size = *(size_t*)(index_map + index_map_offset);
+	index_map_offset += sizeof(vec_size);
 
     // 8.2 read each member
     std::vector<int> tmp_vec;
     tmp_vec.reserve(vec_size);
     for (size_t j = 0; j < vec_size; ++j ) {
-      in.read((char *)&tmp_ecval, sizeof(tmp_ecval));
-      tmp_vec.push_back(tmp_ecval);
-    }
+      tmp_vec.push_back(*(int*)(index_map + index_map_offset));
+	  index_map_offset += sizeof(int);
+	}
     //ecmap.insert({tmp_id, tmp_vec});
     ecmap[tmp_id] = tmp_vec;
     ecmapinv.insert({tmp_vec, tmp_id});
@@ -898,7 +916,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   char *buffer = new char[bufsz];
   for (auto i = 0; i < num_trans; ++i) {
     // 9.1 read in the size
-    in.read((char *)&tmp_size, sizeof(tmp_size));
+	tmp_size = *(size_t*)(index_map + index_map_offset);
+	index_map_offset += sizeof(tmp_size);
 
     if (tmp_size +1 > bufsz) {
       delete[] buffer;
@@ -909,7 +928,9 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
     // clear the buffer 
     memset(buffer,0,bufsz);
     // 9.2 read in the character string
-    in.read(buffer, tmp_size);
+	memcpy(buffer, (char*)(index_map + index_map_offset), tmp_size);
+	index_map_offset += sizeof(char)*tmp_size;
+	//TODO See if buffer is really needed!
 
     /* std::string tmp_targ_id( buffer ); */
     target_names_.push_back(std::string( buffer ));
@@ -917,15 +938,19 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 
 
   // 10. read contigs
-  size_t contig_size;
-  in.read((char *)&contig_size, sizeof(contig_size));
+  size_t contig_size = *(size_t*)(index_map + index_map_offset);
+  index_map_offset += sizeof(contig_size);
+    
   dbGraph.contigs.clear();
   dbGraph.contigs.reserve(contig_size);
   for (auto i = 0; i < contig_size; i++) {
     Contig c;
-    in.read((char *)&c.id, sizeof(c.id));
-    in.read((char *)&c.length, sizeof(c.length));
-    in.read((char *)&tmp_size, sizeof(tmp_size));
+	c.id = *(int*)(index_map + index_map_offset);
+	index_map_offset += sizeof(c.id);
+	c.length = *(int*)(index_map + index_map_offset);
+	index_map_offset += sizeof(c.length);
+	tmp_size = *(size_t*)(index_map + index_map_offset);
+	index_map_offset += sizeof(tmp_size);
 
     if (tmp_size + 1 > bufsz) {
       delete[] buffer;
@@ -934,19 +959,24 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
     }
 
     memset(buffer,0,bufsz);
-    in.read(buffer, tmp_size);
-    c.seq = std::string(buffer); // copy
+	memcpy(buffer, (char*)(index_map + index_map_offset), tmp_size);
+	index_map_offset += sizeof(char)*tmp_size;
+	c.seq = std::string(buffer); // copy
     
     // 10.1 read transcript info
-    in.read((char*)&tmp_size, sizeof(tmp_size));
-    c.transcripts.clear();
+	tmp_size = *(size_t*)(index_map + index_map_offset);
+	index_map_offset += sizeof(tmp_size);
+	c.transcripts.clear();
     c.transcripts.reserve(tmp_size);
 
     for (auto j = 0; j < tmp_size; j++) {
       ContigToTranscript info;
-      in.read((char*)&info.trid, sizeof(info.trid));
-      in.read((char*)&info.pos, sizeof(info.pos));
-      in.read((char*)&info.sense, sizeof(info.sense));
+	  info.trid = *(int*)(index_map + index_map_offset);
+	  index_map_offset += sizeof(info.trid);
+	  info.pos = *(int*)(index_map + index_map_offset);
+	  index_map_offset += sizeof(info.pos);
+	  info.sense = *(char*)(index_map + index_map_offset);
+	  index_map_offset += sizeof(char);
       c.transcripts.push_back(info);
     }
 
@@ -958,16 +988,15 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   dbGraph.ecs.reserve(contig_size);
   int tmp_ec;
   for (auto i = 0; i < contig_size; i++) {
-    in.read((char *)&tmp_ec, sizeof(tmp_ec));
-    dbGraph.ecs.push_back(tmp_ec);
+	tmp_ec = *(int*)(index_map + index_map_offset);
+	index_map_offset += sizeof(tmp_ec);
+	dbGraph.ecs.push_back(tmp_ec);
   }
 
   // delete the buffer
   delete[] buffer;
   buffer=nullptr;
-  
-  in.close();
-}
+ }
 
 
 int KmerIndex::mapPair(const char *s1, int l1, const char *s2, int l2, int ec) const {
