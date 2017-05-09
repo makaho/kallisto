@@ -923,22 +923,9 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
     // 9.1 read in the size
 	tmp_size = *(size_t*)(index_map + index_map_offset);
 	index_map_offset += sizeof(tmp_size);
-
-    if (tmp_size +1 > bufsz) {
-      delete[] buffer;
-      bufsz = 2*(tmp_size+1);
-      buffer = new char[bufsz];
-    }
-    
-    // clear the buffer 
-    memset(buffer,0,bufsz);
     // 9.2 read in the character string
-	memcpy(buffer, (char*)(index_map + index_map_offset), tmp_size);
+    target_names_.push_back(std::string((char*)(index_map + index_map_offset), tmp_size)); // copy
 	index_map_offset += sizeof(char)*tmp_size;
-	//TODO See if buffer is really needed!
-
-    /* std::string tmp_targ_id( buffer ); */
-    target_names_.push_back(std::string( buffer ));
   }
 
 
@@ -956,18 +943,9 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 	index_map_offset += sizeof(c.length);
 	tmp_size = *(size_t*)(index_map + index_map_offset);
 	index_map_offset += sizeof(tmp_size);
-
-    if (tmp_size + 1 > bufsz) {
-      delete[] buffer;
-      bufsz = 2*(tmp_size+1);
-      buffer = new char[bufsz];
-    }
-
-    memset(buffer,0,bufsz);
-	memcpy(buffer, (char*)(index_map + index_map_offset), tmp_size);
+	c.seq = std::string((char*)(index_map + index_map_offset), tmp_size); // copy
 	index_map_offset += sizeof(char)*tmp_size;
-	c.seq = std::string(buffer); // copy
-    
+
     // 10.1 read transcript info
 	tmp_size = *(size_t*)(index_map + index_map_offset);
 	index_map_offset += sizeof(tmp_size);
