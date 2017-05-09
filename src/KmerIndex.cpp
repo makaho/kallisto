@@ -790,9 +790,9 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 
   std::string& index_in = opt.index;
 
-  time_t before, after;
+  clock_t before, after;
 
-  time(&before);
+  before = clock();
 
   int map_fd;
   char *index_map;
@@ -980,8 +980,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   delete[] buffer;
   buffer=nullptr;
 
-  time(&after);
-  printf("%.f seconds for loading index.\n", difftime(after, before));
+  after = clock();
+  std::cout << "[index]" << (after - before) / 1000.0 << " seconds for loading index." << std::endl;
  }
 
 
