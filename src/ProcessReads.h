@@ -42,7 +42,7 @@ public:
   l1(0),l2(0),nl1(0),nl2(0),
   paired(false), 
   f_umi(new std::ifstream{}),
-  current_file(0), state(false) {}
+  current_file(0), state(false), total(0) {}
   SequenceReader(SequenceReader&& o);
   
   bool empty();
@@ -64,6 +64,7 @@ public:
   std::unique_ptr<std::ifstream> f_umi;
   int current_file;
   bool state; // is the file open
+  unsigned long total;
 };
 
 class MasterProcessor {

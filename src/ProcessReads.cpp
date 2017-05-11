@@ -435,7 +435,8 @@ void MasterProcessor::outputFusion(const std::stringstream &o) {
 ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, int _id) :
  paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id) {
    // initialize buffer
-   bufsize = 1ULL<<23;
+   bufsize = 1ULL<<26;
+   //25 = 32MB
    buffer = new char[bufsize];
 
    if (opt.batch_mode) {
@@ -797,6 +798,7 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
   std::string line;
   std::string umi;
   
+  clock_t before, after;
     
   seqs.clear();
   umis.clear();
@@ -808,27 +810,38 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
   bool usingUMIfiles = !umi_files.empty();
   int umis_read = 0;
   
+  std::cout << "Fetching sequences..." << std::endl;
+  before = clock();
+
   int bufpos = 0;
   int pad = (paired) ? 2 : 1;
   while (true) {
     if (!state) { // should we open a file
-      if (current_file >= files.size()) {
-        // nothing left
-        return false;
-      } else {
-        // close the current file
-        if(fp1) {
-          gzclose(fp1);
-        }
-        if (paired && fp2) {
-          gzclose(fp2);
-        }
-        // close current umi file
-        if (usingUMIfiles) {
-          // read up the rest of the files          
-          f_umi->close();
-        }
-        
+				  // close the current file
+	
+	  if (current_file >= files.size()) {
+	    // nothing left
+		  if (before > 0) {
+			  after = clock();
+			  std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences." << std::endl;
+			  total += (after - before);
+			  std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
+			  std::cerr.flush();
+		  }
+		  return false;
+	  } else {        
+		  if (fp1) {
+			  gzclose(fp1);
+		  }
+		  if (paired && fp2) {
+			  gzclose(fp2);
+		  }
+		  // close current umi file
+		  if (usingUMIfiles) {
+			  // read up the rest of the files          
+			  f_umi->close();
+		  }
+		  
         // open the next one
         fp1 = gzopen(files[current_file].c_str(),"r");
         seq1 = kseq_init(fp1);
@@ -899,7 +912,14 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
           }
         }
       } else {
-        return true; // read it next time
+		  if (before > 0) {
+			  after = clock();
+			  std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences from file " << files[current_file] << std::endl;
+			  total += (after - before);
+			  std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
+			  std::cerr.flush();
+		  }
+		  return true; // read it next time
       }
 
       // read for the next one
