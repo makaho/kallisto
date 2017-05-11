@@ -15,6 +15,11 @@
 #include <atomic>
 #include <condition_variable>
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
 #include "MinCollector.h"
 
 #include "common.h"
@@ -32,16 +37,14 @@ class SequenceReader {
 public:
 
   SequenceReader(const ProgramOptions& opt) :
-  fp1(0),fp2(0),seq1(0),seq2(0),
+  seq1(0),seq2(0),
   l1(0),l2(0),nl1(0),nl2(0),
   paired(!opt.single_end), files(opt.files),
-  f_umi(new std::ifstream{}),
-  current_file(0), state(false) {}
+  current_file(0), state(false), total(0) {}
   SequenceReader() :
-  fp1(0),fp2(0),seq1(0),seq2(0),
+  seq1(0),seq2(0),
   l1(0),l2(0),nl1(0),nl2(0),
   paired(false), 
-  f_umi(new std::ifstream{}),
   current_file(0), state(false), total(0) {}
   SequenceReader(SequenceReader&& o);
   
@@ -55,16 +58,19 @@ public:
                       bool full=false);
 
 public:
-  gzFile fp1 = 0, fp2 = 0;
+  int pf1 = 0, pf2 = 0, pu;
   kseq_t *seq1 = 0, *seq2 = 0;
   int l1,l2,nl1,nl2;
   bool paired;
   std::vector<std::string> files;
   std::vector<std::string> umi_files;
-  std::unique_ptr<std::ifstream> f_umi;
   int current_file;
   bool state; // is the file open
   unsigned long total;
+  char* mf1, *mf2, *mu;
+  size_t of1, of2, ou;
+  struct stat sf1, sf2, su;
+
 };
 
 class MasterProcessor {

@@ -67,9 +67,9 @@ int findFirstMappingKmer(const std::vector<std::pair<KmerEntry,int>> &v,KmerEntr
 }
 
 int ProcessBatchReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc, std::vector<std::vector<int>> &batchCounts) {
-  int limit = 1048576; 
+  int limit = 200000; 
   std::vector<std::pair<const char*, int>> seqs;
-  seqs.reserve(limit/50);
+  seqs.reserve(limit);
 
 
   // need to receive an index map
@@ -435,7 +435,7 @@ void MasterProcessor::outputFusion(const std::stringstream &o) {
 ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, int _id) :
  paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id) {
    // initialize buffer
-   bufsize = 1ULL<<26;
+	bufsize = 200000; //1ULL<<26;
    //25 = 32MB
    buffer = new char[bufsize];
 
@@ -448,9 +448,9 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
      batchSR.paired = !opt.single_end;
    }
 
-   seqs.reserve(bufsize/50);
+   seqs.reserve(bufsize);
    if (opt.umi) {
-    umis.reserve(bufsize/50);
+    umis.reserve(bufsize);
    }
    newEcs.reserve(1000);
    counts.reserve((int) (tc.counts.size() * 1.25));
@@ -474,9 +474,9 @@ ReadProcessor::ReadProcessor(ReadProcessor && o) :
   bias5(std::move(o.bias5)),
   batchSR(std::move(o.batchSR)),
   counts(std::move(o.counts)) {
-    buffer = o.buffer;
-    o.buffer = nullptr;
-    o.bufsize = 0;
+  buffer = o.buffer;
+  o.buffer = nullptr;
+  o.bufsize = 0;
 }
 
 ReadProcessor::~ReadProcessor() {
@@ -508,11 +508,15 @@ void ReadProcessor::operator()() {
     }
 
     // process our sequences
+	std::cerr << "begin processBuffer()" << std::endl;
     processBuffer();
+	std::cerr << "end processBuffer()" << std::endl;
 
     // update the results, MP acquires the lock
-    mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? seqs.size()/2 : seqs.size(), flens, bias5, id);
-    clear();
+	std::cerr << "begin processBuffer()" << std::endl;
+	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? seqs.size()/2 : seqs.size(), flens, bias5, id);
+	std::cerr << "end processBuffer()" << std::endl;
+	clear();
   }
 }
 
@@ -771,22 +775,34 @@ void ReadProcessor::clear() {
 
 /** -- sequence reader -- **/
 SequenceReader::~SequenceReader() {
-  if (fp1) {
-    gzclose(fp1);
-  }
-  if (paired && fp2) {
-    gzclose(fp2);
-  }
+	if (pf1) {
+		munmap((void*)mf1, sf1.st_size);
+		close(pf1);
+	}
+	if (paired && pf2) {
+		munmap((void*)mf2, sf2.st_size);
+		close(pf2);
+	}
+	// close current umi file
+	if (!umi_files.empty()) {
+		// read up the rest of the files          
+		munmap((void*)mu, su.st_size);
+		close(pu);
+	}
 
-  kseq_destroy(seq1);
-  if (paired) {
-    kseq_destroy(seq2);
-  }
+  //kseq_destroy(seq1);
+  //if (paired) {
+  //  kseq_destroy(seq2);
+  //}
   
   // check if umi stream is open, then close
 }
 
 
+size_t nextOccurence(char* string, size_t offset, char c) {
+	char* pos = strchr(string + offset, c);
+	return pos - string - offset;
+}
 
 // returns true if there is more left to read from the files
 bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std::pair<const char *, int> > &seqs,
@@ -815,6 +831,7 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 
   int bufpos = 0;
   int pad = (paired) ? 2 : 1;
+  int loaded = 0;
   while (true) {
     if (!state) { // should we open a file
 				  // close the current file
@@ -830,107 +847,113 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 		  }
 		  return false;
 	  } else {        
-		  if (fp1) {
-			  gzclose(fp1);
+		  if (pf1) {
+			  munmap((void*)mf1, sf1.st_size);
+			  close(pf1);
 		  }
-		  if (paired && fp2) {
-			  gzclose(fp2);
+		  if (paired && pf2) {
+			  munmap((void*)mf2, sf2.st_size);
+			  close(pf2);
 		  }
 		  // close current umi file
 		  if (usingUMIfiles) {
 			  // read up the rest of the files          
-			  f_umi->close();
+			  munmap((void*)mu, su.st_size);
+			  close(pu);
 		  }
 		  
         // open the next one
-        fp1 = gzopen(files[current_file].c_str(),"r");
-        seq1 = kseq_init(fp1);
-        l1 = kseq_read(seq1);
+
+		  std::cerr << "Begin files opening" << std::endl; std::cerr.flush();
+
+		  if (stat(files[current_file].c_str(), &sf1) == -1) {
+			  perror("stat failed");
+			  exit(1);
+		  }
+		  pf1 = open(files[current_file].c_str(), O_RDONLY);
+		  mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
+		  of1 = 0;
         state = true;
         if (paired) {
           current_file++;
-          fp2 = gzopen(files[current_file].c_str(),"r");
-          seq2 = kseq_init(fp2);
-          l2 = kseq_read(seq2);
+		  if (stat(files[current_file].c_str(), &sf2) == -1) {
+			  perror("stat failed"); exit(1);
+		  }
+		  pf2 = open(files[current_file].c_str(), O_RDONLY);
+		  mf2 = (char *)mmap(0, sf2.st_size, PROT_READ, MAP_SHARED, pf2, 0);
+		  of2 = 0;
         }
         if (usingUMIfiles) {
-          // open new umi file
-          f_umi->open(umi_files[current_file]);          
+			std::cerr << "Loading umis" << std::endl; std::cerr.flush();
+		  if (stat(umi_files[current_file].c_str(), &su) == -1) {
+			  perror("stat failed");
+			  exit(1);
+		  }
+		  pu = open(umi_files[current_file].c_str(), O_RDONLY);
+		  mu = (char *)mmap(0, su.st_size, PROT_READ, MAP_SHARED, pu, 0);
+		  if (*mu == -1) {
+			  perror("UMI mmap failed "); exit(1);
+		  }
+		  ou = 0;
         }
+		std::cerr << "Files opened" << std::endl; std::cerr.flush();
       }
     }
     // the file is open and we have read into seq1 and seq2
 
-    if (l1 > 0 && (!paired || l2 > 0)) {
-      int bufadd = l1 + l2 + pad;
-      // fits into the buffer
-      if (full) {
-        nl1 = seq1->name.l;
-        if (paired) {
-          nl2 = seq2->name.l;
-        }
-        bufadd += (l1+l2) + pad + (nl1+nl2)+ pad;
-      }
-      if (bufpos+bufadd< limit) {
-        char *p1 = buf+bufpos;
-        memcpy(p1, seq1->seq.s, l1+1);
-        bufpos += l1+1;
-        seqs.emplace_back(p1,l1);
-        
-        if (usingUMIfiles) {
-          std::stringstream ss;
-          std::getline(*f_umi, line);
-          ss.str(line);
-          ss >> umi;
-          umis.emplace_back(std::move(umi));
-        }
-        if (full) {
-          p1 = buf+bufpos;
-          memcpy(p1, seq1->qual.s,l1+1);
-          bufpos += l1+1;
-          quals.emplace_back(p1,l1);
-          p1 = buf+bufpos;
-          memcpy(p1, seq1->name.s,nl1+1);
-          bufpos += nl1+1;
-          names.emplace_back(p1,nl1);
-        }
-
-        if (paired) {
-          char *p2 = buf+bufpos;
-          memcpy(p2, seq2->seq.s,l2+1);
-          bufpos += l2+1;
-          seqs.emplace_back(p2,l2);
-          if (full) {
-            p2 = buf+bufpos;
-            memcpy(p2,seq2->qual.s,l2+1);
-            bufpos += l2+1;
-            quals.emplace_back(p2,l2);
-            p2 = buf + bufpos;
-            memcpy(p2,seq2->name.s,nl2+1);
-            bufpos += nl2+1;
-            names.emplace_back(p2,nl2);
-          }
-        }
-      } else {
-		  if (before > 0) {
-			  after = clock();
-			  std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences from file " << files[current_file] << std::endl;
-			  total += (after - before);
-			  std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
-			  std::cerr.flush();
-		  }
-		  return true; // read it next time
-      }
-
-      // read for the next one
-      l1 = kseq_read(seq1);
-      if (paired) {
-        l2 = kseq_read(seq2);
-      }
-    } else {
-      current_file++; // move to next file
-      state = false; // haven't opened file yet
-    }
+	size_t pos;
+	std::cerr << "Offset1 " << of1 << " of filesize1 " << sf1.st_size << std::endl;
+	char* s1, *s2; size_t l1, l2;
+	while ((loaded < limit) && (of1 < sf1.st_size-1)) {
+		pos = nextOccurence(mf1, of1, '\n');
+		names.emplace_back(std::make_pair(mf1 + of1, pos));
+		of1 += pos+1;
+		pos = nextOccurence(mf1, of1, '\n');
+		l1 = pos;
+		s1 = mf1 + of1;
+		seqs.emplace_back(mf1 + of1, pos);
+		of1 += pos+1;
+		pos = nextOccurence(mf1, of1, '\n');
+		of1 += pos+1;
+		pos = nextOccurence(mf1, of1, '\n');
+		quals.emplace_back(mf1 + of1, pos);
+		of1 += pos+1;
+		if (usingUMIfiles) {
+			pos = nextOccurence(mu, ou, '\n');
+			umis.emplace_back(std::string(mu + ou, pos));
+			ou += pos + 1;
+		}
+		if (paired) {
+			pos = nextOccurence(mf2, of2, '\n');
+			names.emplace_back(mf2 + of2, pos);
+			of2 += pos + 1;
+			pos = nextOccurence(mf2, of2, '\n');
+			l2 = pos;
+			s2 = mf2 + of2;
+			seqs.emplace_back(std::make_pair(mf2 + of2, pos));
+			of2 += pos + 1;
+			pos = nextOccurence(mf2, of2, '\n');
+			of2 += pos + 1;
+			pos = nextOccurence(mf2, of2, '\n');
+			quals.emplace_back(mf2 + of2, pos);
+			of2 += pos + 1;
+		}
+		loaded++;
+	}
+	std::cerr << "Loaded " << loaded << " reads of limit " << limit << std::endl;
+	std::cerr << "Offset1 " << of1 << " of filesize1 " << sf1.st_size << std::endl;
+	if (of1 >= sf1.st_size-1) {
+		current_file++; // move to next file
+		state = false; // haven't opened file yet
+	}
+	if (loaded >= limit) {
+		after = clock();
+		std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences." << std::endl;
+		total += (after - before);
+		std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
+		std::cerr.flush();
+		return true;
+	}
   }
 }
 
@@ -939,24 +962,30 @@ bool SequenceReader::empty() {
 }
 
 SequenceReader::SequenceReader(SequenceReader&& o) :
-  fp1(o.fp1),
-  fp2(o.fp2),
   seq1(o.seq1),
   seq2(o.seq2),
   l1(o.l1),
   l2(o.l2),
   nl1(o.nl1),
   nl2(o.nl2),
+  pf1(o.pf1),
+  pf2(o.pf2),
+  pu(o.pu),
+  of1(o.of1),
+  of2(o.of2),
+  ou(o.ou),
+  mf1(o.mf1),
+  mf2(o.mf2),
+  mu(o.mu),
+  sf1(o.sf1),
+  sf2(o.sf2),
+  su(o.su),
   paired(o.paired),
   files(std::move(o.files)),
   umi_files(std::move(o.umi_files)),
-  f_umi(std::move(o.f_umi)),
   current_file(o.current_file),
   state(o.state) {
-  o.fp1 = nullptr;
-  o.fp2 = nullptr;
   o.seq1 = nullptr;
   o.seq2 = nullptr;
   o.state = false;
-  
 }
