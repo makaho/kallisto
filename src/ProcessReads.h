@@ -51,9 +51,9 @@ public:
   bool empty();
   ~SequenceReader();
 
-  bool fetchSequences(char *buf, const int limit, std::vector<std::pair<const char*, int>>& seqs,
-                      std::vector<std::pair<const char*, int>>& names,
-                      std::vector<std::pair<const char*, int>>& quals,
+  bool fetchSequences(char *buf, const int limit, std::vector<std::pair<std::string, int>>& seqs,
+                      std::vector<std::pair<std::string, int>>& names,
+                      std::vector<std::pair<std::string, int>>& quals,
                       std::vector<std::string>& umis, 
                       bool full=false);
 
@@ -137,9 +137,9 @@ public:
   int numreads;
   int id;
 
-  std::vector<std::pair<const char*, int>> seqs;
-  std::vector<std::pair<const char*, int>> names;
-  std::vector<std::pair<const char*, int>> quals;
+  std::vector<std::pair<std::string, int>> seqs;
+  std::vector<std::pair<std::string, int>> names;
+  std::vector<std::pair<std::string, int>> quals;
   std::vector<std::string> umis;
   std::vector<std::vector<int>> newEcs;
   std::vector<int> flens;

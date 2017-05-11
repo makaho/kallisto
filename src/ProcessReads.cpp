@@ -567,11 +567,11 @@ void ReadProcessor::processBuffer() {
 
   // actually process the sequences
   for (int i = 0; i < seqs.size(); i++) {
-    s1 = seqs[i].first;
+    s1 = seqs[i].first.c_str();
     l1 = seqs[i].second;
     if (paired) {
       i++;
-      s2 = seqs[i].first;
+      s2 = seqs[i].first.c_str();
       l2 = seqs[i].second;
     }
 
@@ -738,12 +738,12 @@ void ReadProcessor::processBuffer() {
     if (mp.opt.pseudobam) {
       if (paired) {
         outputPseudoBam(index, u,
-          s1, names[i-1].first, quals[i-1].first, l1, names[i-1].second, v1,
-          s2, names[i].first, quals[i].first, l2, names[i].second, v2,
+          s1, names[i-1].first.c_str(), quals[i-1].first.c_str(), l1, names[i-1].second, v1,
+          s2, names[i].first.c_str(), quals[i].first.c_str(), l2, names[i].second, v2,
           paired);
       } else {
         outputPseudoBam(index, u,
-          s1, names[i].first, quals[i].first, l1, names[i].second, v1,
+          s1, names[i].first.c_str(), quals[i].first.c_str(), l1, names[i].second, v1,
           nullptr, nullptr, nullptr, 0, 0, v2,
           paired);
       }
@@ -805,9 +805,9 @@ size_t nextOccurence(char* string, size_t offset, char c) {
 }
 
 // returns true if there is more left to read from the files
-bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std::pair<const char *, int> > &seqs,
-  std::vector<std::pair<const char *, int> > &names,
-  std::vector<std::pair<const char *, int> > &quals,
+bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std::pair<std::string, int> > &seqs,
+  std::vector<std::pair<std::string, int> > &names,
+  std::vector<std::pair<std::string, int> > &quals,
   std::vector<std::string> &umis, 
   bool full) {
     
@@ -906,17 +906,17 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 	char* s1, *s2; size_t l1, l2;
 	while ((loaded < limit) && (of1 < sf1.st_size-1)) {
 		pos = nextOccurence(mf1, of1, '\n');
-		names.emplace_back(std::make_pair(mf1 + of1, pos));
+		names.emplace_back(std::make_pair(std::string(mf1 + of1,pos), pos));
 		of1 += pos+1;
 		pos = nextOccurence(mf1, of1, '\n');
 		l1 = pos;
 		s1 = mf1 + of1;
-		seqs.emplace_back(mf1 + of1, pos);
+		seqs.emplace_back(std::make_pair(std::string(mf1 + of1, pos), pos));
 		of1 += pos+1;
 		pos = nextOccurence(mf1, of1, '\n');
 		of1 += pos+1;
 		pos = nextOccurence(mf1, of1, '\n');
-		quals.emplace_back(mf1 + of1, pos);
+		quals.emplace_back(std::make_pair(std::string(mf1 + of1, pos), pos));
 		of1 += pos+1;
 		if (usingUMIfiles) {
 			pos = nextOccurence(mu, ou, '\n');
@@ -925,17 +925,17 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 		}
 		if (paired) {
 			pos = nextOccurence(mf2, of2, '\n');
-			names.emplace_back(mf2 + of2, pos);
+			names.emplace_back(std::make_pair(std::string(mf2 + of2, pos), pos));
 			of2 += pos + 1;
 			pos = nextOccurence(mf2, of2, '\n');
 			l2 = pos;
 			s2 = mf2 + of2;
-			seqs.emplace_back(std::make_pair(mf2 + of2, pos));
+			seqs.emplace_back(std::make_pair(std::string(mf2 + of2, pos), pos));
 			of2 += pos + 1;
 			pos = nextOccurence(mf2, of2, '\n');
 			of2 += pos + 1;
 			pos = nextOccurence(mf2, of2, '\n');
-			quals.emplace_back(mf2 + of2, pos);
+			quals.emplace_back(std::make_pair(std::string(mf2 + of2, pos), pos));
 			of2 += pos + 1;
 		}
 		loaded++;
