@@ -856,7 +856,7 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 			  close(pf2);
 		  }
 		  // close current umi file
-		  if (usingUMIfiles) {
+		  if (usingUMIfiles && mu) {
 			  // read up the rest of the files          
 			  munmap((void*)mu, su.st_size);
 			  close(pu);
