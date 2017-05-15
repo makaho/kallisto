@@ -122,7 +122,7 @@ public:
 
 class ReadProcessor {
 public:
-  ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, int id = -1);
+  ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* fastqfile, std::vector<unsigned long> &indices, unsigned long start, unsigned long stop, int id = -1);
   ReadProcessor(ReadProcessor && o);
   ~ReadProcessor();
   char *buffer;
@@ -137,6 +137,11 @@ public:
   int numreads;
   int id;
 
+  std::vector<unsigned long>& indices;
+  unsigned long start;
+  unsigned long stop;
+  char* fastqfile;
+
   std::vector<std::pair<std::string, int>> seqs;
   std::vector<std::pair<std::string, int>> names;
   std::vector<std::pair<std::string, int>> quals;
@@ -149,6 +154,7 @@ public:
 
   void operator()();
   void processBuffer();
+  void myProcessBuffer();
   void clear();
 };
 

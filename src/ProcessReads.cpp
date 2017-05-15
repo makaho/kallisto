@@ -21,6 +21,10 @@
 #include "PseudoBam.h"
 #include "Fusion.hpp"
 
+
+void createIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins);
+void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins);
+
 void printVector(const std::vector<int>& v, std::ostream& o) {
   o << "[";
   int i = 0;
@@ -217,29 +221,79 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 /** -- read processors -- **/
 
 void MasterProcessor::processReads() {
+
+	//my test
+	struct stat sf1;
+	if (stat(opt.files[0].c_str(), &sf1) == -1) {
+		perror("stat failed");
+		exit(1);
+	}	
+	int pf1 = open(opt.files[0].c_str(), O_RDONLY);
+	char* mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
+	unsigned long of1 = 0;
+
+	////////////////////////remove me start
+	clock_t bef, aft;
+	bef = clock();
+	/*std::vector<std::vector<unsigned long>> begins(opt.threads);
+
+	unsigned int stepSize = (sf1.st_size / opt.threads) + 1;
+	std::vector<std::thread> myworkers;
+	for (int i = 0; i < opt.threads-1; i++) {
+		begins[i].reserve((sf1.st_size / 150) / opt.threads);
+		myworkers.emplace_back(std::thread(createIndexForFile,mf1, i * stepSize, std::min<unsigned long>(sf1.st_size-1, ((i+1) * stepSize) - 1), std::ref(begins[i])));
+	}
+	std::cerr << "All started/created." << std::endl; std::cerr.flush();
+	for (int i = 0; i < myworkers.size(); i++) {
+		myworkers[i].join();
+	}
+	int sumsize = 0;
+	for (int i = 0; i < begins.size(); i++) {
+		sumsize += begins[i].size();
+	}
+	std::vector<unsigned long> indices;
+	indices.reserve(sumsize);
+	for (int i = 0; i < begins.size(); i++) {
+		indices.insert(
+			indices.end(),
+			std::make_move_iterator(begins[i].begin()),
+			std::make_move_iterator(begins[i].end())
+		);
+	}
+	*/
+	std::vector<unsigned long> indices;
+	indices.reserve(sf1.st_size / 300);
+	createSingleIndexForFile(mf1, 0, sf1.st_size, indices);
+	aft = clock();
+	std::cerr << "It took " << (aft - bef) / CLOCKS_PER_SEC << " s to index sequences." << std::endl;
+	std::cerr << "Found " << indices.size() << " reads." << std::endl; std::cerr.flush();
+	
+
   // start worker threads
   if (!opt.batch_mode) {
-    std::vector<std::thread> workers;
-    for (int i = 0; i < opt.threads; i++) {
-      workers.emplace_back(std::thread(ReadProcessor(index,opt,tc,*this)));
-    }
-    
-    // let the workers do their thing
-    for (int i = 0; i < opt.threads; i++) {
-      workers[i].join(); //wait for them to finish
-    }
+	  std::vector<std::thread> workers;
+	  unsigned long stepsize = (indices.size()/opt.threads) + 1;
+	  for (int i = 0; i < opt.threads; i++) {
+		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices),i*stepsize, std::min<unsigned long>(indices.size(), (i+1)*stepsize-1))));
+	  }
 
-    // now handle the modification of the mincollector
-    for (auto &t : newECcount) {
-      if (t.second <= 0) {
-        continue;
-      }
-      int ec = tc.increaseCount(t.first); // modifies the ecmap
+	  // let the workers do their thing
+	  for (int i = 0; i < opt.threads; i++) {
+		  workers[i].join(); //wait for them to finish
+	  }
 
-      if (ec != -1 && t.second > 1) {
-        tc.counts[ec] += (t.second-1);
-      }
-    }
+	  std::cerr << "all done" << std::endl; std::cerr.flush();
+	  // now handle the modification of the mincollector
+	  for (auto &t : newECcount) {
+		  if (t.second <= 0) {
+			  continue;
+		  }
+		  int ec = tc.increaseCount(t.first); // modifies the ecmap
+
+		  if (ec != -1 && t.second > 1) {
+			  tc.counts[ec] += (t.second - 1);
+		  }
+	  }
   } else {
     std::vector<std::thread> workers;
     int num_ids = opt.batch_ids.size();
@@ -248,8 +302,9 @@ void MasterProcessor::processReads() {
       // TODO: put in thread pool
       workers.clear();
       int nt = std::min(opt.threads, (num_ids - id));
+	  unsigned int stepsize = (indices.size() / opt.threads) + 1;
       for (int i = 0; i < nt; i++,id++) {
-        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, id)));
+        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), i*stepsize, (i + 1)*stepsize - 1, id)));
       }
       
       for (int i = 0; i < nt; i++) {
@@ -432,32 +487,41 @@ void MasterProcessor::outputFusion(const std::stringstream &o) {
 }
 
 
-ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, int _id) :
- paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id) {
-   // initialize buffer
-	bufsize = 200000; //1ULL<<26;
-   //25 = 32MB
+ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* pfastqfile, std::vector<unsigned long>& pindices, unsigned long pstart, unsigned long pstop, int _id) :
+ paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id), indices(pindices) {
+
+    // initialize buffer
+   bufsize = 1ULL << 23;
    buffer = new char[bufsize];
 
    if (opt.batch_mode) {
-     assert(id != -1);
-     batchSR.files = opt.batch_files[id];
-     if (opt.umi) {
-       batchSR.umi_files = {opt.umi_files[id]};
-     }
-     batchSR.paired = !opt.single_end;
+	   assert(id != -1);
+	   batchSR.files = opt.batch_files[id];
+	   if (opt.umi) {
+		   batchSR.umi_files = { opt.umi_files[id] };
+	   }
+	   batchSR.paired = !opt.single_end;
    }
 
-   seqs.reserve(bufsize);
+   fastqfile = pfastqfile;
+   indices = pindices;
+   start = pstart;
+   stop = pstop;
+
+   seqs.reserve(bufsize / 50);
    if (opt.umi) {
-    umis.reserve(bufsize);
+	   umis.reserve(bufsize / 50);
    }
    newEcs.reserve(1000);
-   counts.reserve((int) (tc.counts.size() * 1.25));
+   counts.reserve((int)(tc.counts.size() * 1.25));
    clear();
 }
 
 ReadProcessor::ReadProcessor(ReadProcessor && o) :
+  fastqfile(o.fastqfile),
+  indices(o.indices),
+  start(o.start),
+  stop(o.stop),
   paired(o.paired),
   tc(o.tc),
   index(o.index),
@@ -487,7 +551,7 @@ ReadProcessor::~ReadProcessor() {
 }
 
 void ReadProcessor::operator()() {
-  while (true) {
+/*  while (true) {
     // grab the reader lock
     if (mp.opt.batch_mode) {
       if (batchSR.empty()) {
@@ -506,18 +570,269 @@ void ReadProcessor::operator()() {
       }
       // release the reader lock
     }
-
+*/
     // process our sequences
-	std::cerr << "begin processBuffer()" << std::endl;
-    processBuffer();
-	std::cerr << "end processBuffer()" << std::endl;
+	myProcessBuffer();
+	//processBuffer();
 
     // update the results, MP acquires the lock
-	std::cerr << "begin processBuffer()" << std::endl;
-	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? seqs.size()/2 : seqs.size(), flens, bias5, id);
-	std::cerr << "end processBuffer()" << std::endl;
+	//std::cerr << "mp.update()" << std::endl;
+	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? (stop-start)/2 : stop - start, flens, bias5, id);
 	clear();
-  }
+ //}
+}
+
+void ReadProcessor::myProcessBuffer() {
+	// set up thread variables
+	std::vector<std::pair<KmerEntry, int>> v1, v2;
+	std::vector<int> vtmp;
+	std::vector<int> u;
+
+	u.reserve(1000);
+	v1.reserve(1000);
+	v2.reserve(1000);
+	vtmp.reserve(1000);
+
+	const char* s1 = 0;
+	const char* s2 = 0;
+	int l1, l2;
+
+	bool findFragmentLength = (mp.opt.fld == 0) && (mp.tlencount < 10000);
+
+	int flengoal = 0;
+	flens.clear();
+	if (findFragmentLength) {
+		flengoal = (10000 - mp.tlencount);
+		if (flengoal <= 0) {
+			findFragmentLength = false;
+			flengoal = 0;
+		}
+		else {
+			flens.resize(tc.flens.size(), 0);
+		}
+	}
+
+	int maxBiasCount = 0;
+	bool findBias = mp.opt.bias && (mp.biasCount < mp.maxBiasCount);
+
+
+	int biasgoal = 0;
+	bias5.clear();
+	if (findBias) {
+		biasgoal = (mp.maxBiasCount - mp.biasCount);
+		if (biasgoal <= 0) {
+			findBias = false;
+		}
+		else {
+			bias5.resize(tc.bias5.size(), 0);
+		}
+	}
+
+
+	char * temp = new char[4096];
+	// actually process the sequences
+	for (int i = start; i < stop; i++) {
+		s1 = fastqfile + indices[i];
+		l1 = strchr(s1, '\n') - s1 + 1;
+		memcpy(temp, s1, l1);
+		s1 = temp;
+
+		if (paired) {
+			i++;
+			s2 = fastqfile + indices[i];
+			l2 = strchr(s2, '\n') - s2;
+		}
+
+
+		numreads++;
+		v1.clear();
+		v2.clear();
+		u.clear();
+
+		// process read
+		index.match(s1, l1, v1);
+		if (paired) {
+			index.match(s2, l2, v2);
+		}
+
+		// collect the target information
+		int ec = -1;
+		int r = tc.intersectKmers(v1, v2, !paired, u);
+		if (u.empty()) {
+			if (mp.opt.fusion && !(v1.empty() || v2.empty())) {
+				searchFusion(index, mp.opt, tc, mp, ec, names[i - 1].first, s1, v1, names[i].first, s2, v2, paired);
+			}
+		}
+		else {
+			ec = tc.findEC(u);
+		}
+
+
+		/* --  possibly modify the pseudoalignment  -- */
+
+		// If we have paired end reads where one end maps or single end reads, check if some transcsripts
+		// are not compatible with the mean fragment length
+		if (!mp.opt.umi && !u.empty() && (!paired || v1.empty() || v2.empty()) && tc.has_mean_fl) {
+			vtmp.clear();
+			// inspect the positions
+			int fl = (int)tc.get_mean_frag_len();
+			int p = -1;
+			KmerEntry val;
+			Kmer km;
+
+			if (!v1.empty()) {
+				p = findFirstMappingKmer(v1, val);
+				km = Kmer((s1 + p));
+			}
+			if (!v2.empty()) {
+				p = findFirstMappingKmer(v2, val);
+				km = Kmer((s2 + p));
+			}
+
+			// for each transcript in the pseudoalignment
+			for (auto tr : u) {
+				auto x = index.findPosition(tr, km, val, p);
+				// if the fragment is within bounds for this transcript, keep it
+				if (x.second && x.first + fl <= index.target_lens_[tr]) {
+					vtmp.push_back(tr);
+				}
+				else {
+					//pass
+				}
+				if (!x.second && x.first - fl >= 0) {
+					vtmp.push_back(tr);
+				}
+				else {
+					//pass
+				}
+			}
+
+			if (vtmp.size() < u.size()) {
+				u = vtmp; // copy
+			}
+		}
+
+		if (mp.opt.strand_specific && !u.empty()) {
+			int p = -1;
+			Kmer km;
+			KmerEntry val;
+			if (!v1.empty()) {
+				vtmp.clear();
+				bool firstStrand = (mp.opt.strand == ProgramOptions::StrandType::FR); // FR have first read mapping forward
+				p = findFirstMappingKmer(v1, val);
+				km = Kmer((s1 + p));
+				bool strand = (val.isFw() == (km == km.rep())); // k-mer maps to fw strand?
+																// might need to optimize this
+				const auto &c = index.dbGraph.contigs[val.contig];
+				for (auto tr : u) {
+					for (auto ctx : c.transcripts) {
+						if (tr == ctx.trid) {
+							if ((strand == ctx.sense) == firstStrand) {
+								// swap out 
+								vtmp.push_back(tr);
+							}
+							break;
+						}
+					}
+				}
+				if (vtmp.size() < u.size()) {
+					u = vtmp; // copy
+				}
+			}
+
+			if (!v2.empty()) {
+				vtmp.clear();
+				bool secondStrand = (mp.opt.strand == ProgramOptions::StrandType::RF);
+				p = findFirstMappingKmer(v2, val);
+				km = Kmer((s2 + p));
+				bool strand = (val.isFw() == (km == km.rep())); // k-mer maps to fw strand?
+																// might need to optimize this
+				const auto &c = index.dbGraph.contigs[val.contig];
+				for (auto tr : u) {
+					for (auto ctx : c.transcripts) {
+						if (tr == ctx.trid) {
+							if ((strand == ctx.sense) == secondStrand) {
+								// swap out 
+								vtmp.push_back(tr);
+							}
+							break;
+						}
+					}
+				}
+				if (vtmp.size() < u.size()) {
+					u = vtmp; // copy
+				}
+			}
+		}
+
+		// find the ec
+		if (!u.empty()) {
+			ec = tc.findEC(u);
+
+			if (!mp.opt.umi) {
+				// count the pseudoalignment
+				if (ec == -1 || ec >= counts.size()) {
+					// something we haven't seen before
+					newEcs.push_back(u);
+				}
+				else {
+					// add to count vector
+					++counts[ec];
+				}
+			}
+			else {
+				if (ec == -1 || ec >= counts.size()) {
+					new_ec_umi.emplace_back(u, std::move(umis[i]));
+				}
+				else {
+					ec_umi.emplace_back(ec, std::move(umis[i]));
+				}
+			}
+
+			/* -- collect extra information -- */
+			// collect bias info
+			if (findBias && !u.empty() && biasgoal > 0) {
+				// collect sequence specific bias info
+				if (tc.countBias(s1, (paired) ? s2 : nullptr, v1, v2, paired, bias5)) {
+					biasgoal--;
+				}
+			}
+
+			// collect fragment length info
+			if (findFragmentLength && flengoal > 0 && paired && 0 <= ec &&  ec < index.num_trans && !v1.empty() && !v2.empty()) {
+				// try to map the reads
+				int tl = index.mapPair(s1, l1, s2, l2, ec);
+				if (0 < tl && tl < flens.size()) {
+					flens[tl]++;
+					flengoal--;
+				}
+			}
+		}
+
+		// pseudobam
+		if (mp.opt.pseudobam) {
+			if (paired) {
+				outputPseudoBam(index, u,
+					s1, names[i - 1].first.c_str(), quals[i - 1].first.c_str(), l1, names[i - 1].second, v1,
+					s2, names[i].first.c_str(), quals[i].first.c_str(), l2, names[i].second, v2,
+					paired);
+			}
+			else {
+				outputPseudoBam(index, u,
+					s1, names[i].first.c_str(), quals[i].first.c_str(), l1, names[i].second, v1,
+					nullptr, nullptr, nullptr, 0, 0, v2,
+					paired);
+			}
+		}
+
+
+
+		/*
+		if (opt.verbose && numreads % 100000 == 0 ) {
+		std::cerr << "[quant] Processed " << pretty_num(numreads) << std::endl;
+		}*/
+	}
+
 }
 
 void ReadProcessor::processBuffer() {
@@ -761,7 +1076,7 @@ void ReadProcessor::processBuffer() {
 
 void ReadProcessor::clear() {
   numreads=0;
-  memset(buffer,0,bufsize);
+  //memset(buffer,0,bufsize);
   newEcs.clear();
   counts.clear();
   counts.resize(tc.counts.size(),0);
@@ -840,9 +1155,9 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 	    // nothing left
 		  if (before > 0) {
 			  after = clock();
-			  std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences." << std::endl;
+			  std::cerr << "It took " << (after - before) / CLOCKS_PER_SEC << " s to fetch sequences." << std::endl;
 			  total += (after - before);
-			  std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
+			  std::cerr << "Total fetching " << (total) / CLOCKS_PER_SEC << " s." << std::endl;
 			  std::cerr.flush();
 		  }
 		  return false;
@@ -874,6 +1189,7 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 		  mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
 		  of1 = 0;
         state = true;
+
         if (paired) {
           current_file++;
 		  if (stat(files[current_file].c_str(), &sf2) == -1) {
@@ -891,33 +1207,33 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 		  }
 		  pu = open(umi_files[current_file].c_str(), O_RDONLY);
 		  mu = (char *)mmap(0, su.st_size, PROT_READ, MAP_SHARED, pu, 0);
-		  if (*mu == -1) {
-			  perror("UMI mmap failed "); exit(1);
-		  }
-		  ou = 0;
-        }
+if (*mu == -1) {
+	perror("UMI mmap failed "); exit(1);
+}
+ou = 0;
+		}
 		std::cerr << "Files opened" << std::endl; std::cerr.flush();
-      }
-    }
-    // the file is open and we have read into seq1 and seq2
+	  }
+	}
+	// the file is open and we have read into seq1 and seq2
 
 	size_t pos;
 	std::cerr << "Offset1 " << of1 << " of filesize1 " << sf1.st_size << std::endl;
 	char* s1, *s2; size_t l1, l2;
-	while ((loaded < limit) && (of1 < sf1.st_size-1)) {
+	while ((loaded < limit) && (of1 < sf1.st_size - 1)) {
 		pos = nextOccurence(mf1, of1, '\n');
-		names.emplace_back(std::make_pair(std::string(mf1 + of1,pos), pos));
-		of1 += pos+1;
+		names.emplace_back(std::make_pair(std::string(mf1 + of1, pos), pos));
+		of1 += pos + 1;
 		pos = nextOccurence(mf1, of1, '\n');
 		l1 = pos;
 		s1 = mf1 + of1;
 		seqs.emplace_back(std::make_pair(std::string(mf1 + of1, pos), pos));
-		of1 += pos+1;
+		of1 += pos + 1;
 		pos = nextOccurence(mf1, of1, '\n');
-		of1 += pos+1;
+		of1 += pos + 1;
 		pos = nextOccurence(mf1, of1, '\n');
 		quals.emplace_back(std::make_pair(std::string(mf1 + of1, pos), pos));
-		of1 += pos+1;
+		of1 += pos + 1;
 		if (usingUMIfiles) {
 			pos = nextOccurence(mu, ou, '\n');
 			umis.emplace_back(std::string(mu + ou, pos));
@@ -942,15 +1258,15 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 	}
 	std::cerr << "Loaded " << loaded << " reads of limit " << limit << std::endl;
 	std::cerr << "Offset1 " << of1 << " of filesize1 " << sf1.st_size << std::endl;
-	if (of1 >= sf1.st_size-1) {
+	if (of1 >= sf1.st_size - 1) {
 		current_file++; // move to next file
 		state = false; // haven't opened file yet
 	}
 	if (loaded >= limit) {
 		after = clock();
-		std::cerr << "It took " << (after - before) / 1000000.0 << " s to fetch sequences." << std::endl;
+		std::cerr << "It took " << (after - before) / CLOCKS_PER_SEC << " s to fetch sequences." << std::endl;
 		total += (after - before);
-		std::cerr << "Total fetching " << (total) / 1000000.0 << " s." << std::endl;
+		std::cerr << "Total fetching " << (total) / CLOCKS_PER_SEC << " s." << std::endl;
 		std::cerr.flush();
 		return true;
 	}
@@ -958,34 +1274,80 @@ bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std:
 }
 
 bool SequenceReader::empty() {
-  return (!state && current_file >= files.size());
+	return (!state && current_file >= files.size());
 }
 
 SequenceReader::SequenceReader(SequenceReader&& o) :
-  seq1(o.seq1),
-  seq2(o.seq2),
-  l1(o.l1),
-  l2(o.l2),
-  nl1(o.nl1),
-  nl2(o.nl2),
-  pf1(o.pf1),
-  pf2(o.pf2),
-  pu(o.pu),
-  of1(o.of1),
-  of2(o.of2),
-  ou(o.ou),
-  mf1(o.mf1),
-  mf2(o.mf2),
-  mu(o.mu),
-  sf1(o.sf1),
-  sf2(o.sf2),
-  su(o.su),
-  paired(o.paired),
-  files(std::move(o.files)),
-  umi_files(std::move(o.umi_files)),
-  current_file(o.current_file),
-  state(o.state) {
-  o.seq1 = nullptr;
-  o.seq2 = nullptr;
-  o.state = false;
+	seq1(o.seq1),
+	seq2(o.seq2),
+	l1(o.l1),
+	l2(o.l2),
+	nl1(o.nl1),
+	nl2(o.nl2),
+	pf1(o.pf1),
+	pf2(o.pf2),
+	pu(o.pu),
+	of1(o.of1),
+	of2(o.of2),
+	ou(o.ou),
+	mf1(o.mf1),
+	mf2(o.mf2),
+	mu(o.mu),
+	sf1(o.sf1),
+	sf2(o.sf2),
+	su(o.su),
+	paired(o.paired),
+	files(std::move(o.files)),
+	umi_files(std::move(o.umi_files)),
+	current_file(o.current_file),
+	state(o.state) {
+	o.seq1 = nullptr;
+	o.seq2 = nullptr;
+	o.state = false;
+}
+
+void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins) {
+	char* pos = openfile;
+	unsigned long linenumber = 0;
+	while (pos-openfile < end - 10) {
+		pos = strchr(pos, '\n');
+		linenumber++;
+		pos++;
+		if (linenumber % 4 == 1) {
+			begins.emplace_back(pos - openfile);
+		}
+	}
+}
+
+void createIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins) {
+	//std::cerr << "From " << start << " to " << end << " " << std::endl; std::cerr.flush();
+	//std::cerr << "begins " << begins.capacity() << std::endl; std::cerr.flush();
+
+	unsigned long index = start;
+	//always search for "\n@" to dismiss any @ contained in quality
+	//special case for first: could be at beginning of file, therefore there would be no \n before
+	char* first = strchr(openfile + index, '@');
+	if (index > 0) {
+		while (*(first-1) != '\n') {
+			first = strchr(first+1, '@');
+		}
+	}
+	index = first - openfile;
+	begins.emplace_back(index);
+	index++;
+
+	while (index < end) {
+		first = strchr(openfile + index, '@');
+		if (index > 0) {
+			while (*(first - 1) != '\n') {
+				first = strchr(first+1, '@');
+			}
+		}
+		index = first - openfile;
+		begins.emplace_back(index);
+		index++;
+	}
+	//std::cerr << "[DONE] From " << start << " to " << end << " " << std::endl; std::cerr.flush();
+
+	//return true;
 }
