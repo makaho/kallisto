@@ -23,7 +23,7 @@
 
 
 void createIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins);
-void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins);
+void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins, std::vector<unsigned int> &lengths);
 
 void printVector(const std::vector<int>& v, std::ostream& o) {
   o << "[";
@@ -234,36 +234,44 @@ void MasterProcessor::processReads() {
 
 	////////////////////////remove me start
 	clock_t bef, aft;
-	bef = clock();
-	/*std::vector<std::vector<unsigned long>> begins(opt.threads);
+/*	bef = clock();
 
-	unsigned int stepSize = (sf1.st_size / opt.threads) + 1;
+	std::vector<std::vector<unsigned long>> begins(opt.threads);
+	unsigned long stepSize = (sf1.st_size / opt.threads) + 1;
 	std::vector<std::thread> myworkers;
-	for (int i = 0; i < opt.threads-1; i++) {
-		begins[i].reserve((sf1.st_size / 150) / opt.threads);
-		myworkers.emplace_back(std::thread(createIndexForFile,mf1, i * stepSize, std::min<unsigned long>(sf1.st_size-1, ((i+1) * stepSize) - 1), std::ref(begins[i])));
+	for (int i = 0; i < opt.threads; i++) {
+		begins[i].reserve((sf1.st_size / 75) / opt.threads);
+		myworkers.emplace_back(std::thread(createIndexForFile, mf1, i * stepSize, std::min<unsigned long>(sf1.st_size-10, ((i+1) * stepSize) - 1), std::ref(begins[i])));
 	}
 	std::cerr << "All started/created." << std::endl; std::cerr.flush();
 	for (int i = 0; i < myworkers.size(); i++) {
 		myworkers[i].join();
 	}
+	std::cerr << "All joined." << std::endl; std::cerr.flush();
 	int sumsize = 0;
 	for (int i = 0; i < begins.size(); i++) {
 		sumsize += begins[i].size();
 	}
-	std::vector<unsigned long> indices;
-	indices.reserve(sumsize);
+
+	std::vector<unsigned long> lines;
+	lines.reserve(sumsize);
 	for (int i = 0; i < begins.size(); i++) {
-		indices.insert(
-			indices.end(),
+		lines.insert(
+			lines.end(),
 			std::make_move_iterator(begins[i].begin()),
 			std::make_move_iterator(begins[i].end())
 		);
 	}
-	*/
+	aft = clock();
+	std::cerr << "It took " << (aft - bef) / CLOCKS_PER_SEC << " s to index sequences." << std::endl;
+	std::cout << "Lines: " << lines.size() << " bzw: " << lines.size() / 4 << " reads." << std::endl;
+*/
+	bef = clock();
 	std::vector<unsigned long> indices;
 	indices.reserve(sf1.st_size / 300);
-	createSingleIndexForFile(mf1, 0, sf1.st_size, indices);
+	std::vector<unsigned int> lengths;
+	lengths.reserve(sf1.st_size / 300);
+	createSingleIndexForFile(mf1, 0, sf1.st_size, indices, lengths);
 	aft = clock();
 	std::cerr << "It took " << (aft - bef) / CLOCKS_PER_SEC << " s to index sequences." << std::endl;
 	std::cerr << "Found " << indices.size() << " reads." << std::endl; std::cerr.flush();
@@ -274,7 +282,7 @@ void MasterProcessor::processReads() {
 	  std::vector<std::thread> workers;
 	  unsigned long stepsize = (indices.size()/opt.threads) + 1;
 	  for (int i = 0; i < opt.threads; i++) {
-		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices),i*stepsize, std::min<unsigned long>(indices.size(), (i+1)*stepsize-1))));
+		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths),i*stepsize, std::min<unsigned long>(indices.size()-1, ((i+1)*stepsize)-1))));
 	  }
 
 	  // let the workers do their thing
@@ -282,7 +290,6 @@ void MasterProcessor::processReads() {
 		  workers[i].join(); //wait for them to finish
 	  }
 
-	  std::cerr << "all done" << std::endl; std::cerr.flush();
 	  // now handle the modification of the mincollector
 	  for (auto &t : newECcount) {
 		  if (t.second <= 0) {
@@ -304,7 +311,7 @@ void MasterProcessor::processReads() {
       int nt = std::min(opt.threads, (num_ids - id));
 	  unsigned int stepsize = (indices.size() / opt.threads) + 1;
       for (int i = 0; i < nt; i++,id++) {
-        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), i*stepsize, (i + 1)*stepsize - 1, id)));
+        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths), i*stepsize, (i + 1)*stepsize - 1, id)));
       }
       
       for (int i = 0; i < nt; i++) {
@@ -487,11 +494,11 @@ void MasterProcessor::outputFusion(const std::stringstream &o) {
 }
 
 
-ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* pfastqfile, std::vector<unsigned long>& pindices, unsigned long pstart, unsigned long pstop, int _id) :
- paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id), indices(pindices) {
+ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* pfastqfile, std::vector<unsigned long>& pindices, std::vector<unsigned int> &plengths, unsigned long pstart, unsigned long pstop, int _id) :
+ paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id), indices(pindices), lengths(plengths) {
 
     // initialize buffer
-   bufsize = 1ULL << 23;
+   bufsize = 1ULL << 8;
    buffer = new char[bufsize];
 
    if (opt.batch_mode) {
@@ -505,6 +512,7 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
 
    fastqfile = pfastqfile;
    indices = pindices;
+   lengths = plengths;
    start = pstart;
    stop = pstop;
 
@@ -520,6 +528,7 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
 ReadProcessor::ReadProcessor(ReadProcessor && o) :
   fastqfile(o.fastqfile),
   indices(o.indices),
+  lengths(o.lengths),
   start(o.start),
   stop(o.stop),
   paired(o.paired),
@@ -576,7 +585,7 @@ void ReadProcessor::operator()() {
 	//processBuffer();
 
     // update the results, MP acquires the lock
-	//std::cerr << "mp.update()" << std::endl;
+	std::cerr << "mp.update()" << std::endl;
 	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? (stop-start)/2 : stop - start, flens, bias5, id);
 	clear();
  //}
@@ -631,9 +640,10 @@ void ReadProcessor::myProcessBuffer() {
 
 	char * temp = new char[4096];
 	// actually process the sequences
-	for (int i = start; i < stop; i++) {
+	for (unsigned long i = start; i <= stop; ++i) {
 		s1 = fastqfile + indices[i];
-		l1 = strchr(s1, '\n') - s1 + 1;
+
+		l1 = lengths[i];// strchr(s1, '\n') - s1 + 1;
 		memcpy(temp, s1, l1);
 		s1 = temp;
 
@@ -1306,8 +1316,9 @@ SequenceReader::SequenceReader(SequenceReader&& o) :
 	o.state = false;
 }
 
-void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins) {
+void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins, std::vector<unsigned int> &lengths) {
 	char* pos = openfile;
+	char* pos2;
 	unsigned long linenumber = 0;
 	while (pos-openfile < end - 10) {
 		pos = strchr(pos, '\n');
@@ -1315,39 +1326,21 @@ void createSingleIndexForFile(char* openfile, unsigned long start, unsigned long
 		pos++;
 		if (linenumber % 4 == 1) {
 			begins.emplace_back(pos - openfile);
+			pos2 = strchr(pos, '\n');
+			lengths.emplace_back(pos2 - pos);
+			pos = pos2;
+			linenumber++;
+			pos++;
 		}
 	}
 }
 
 void createIndexForFile(char* openfile, unsigned long start, unsigned long end, std::vector<unsigned long> &begins) {
-	//std::cerr << "From " << start << " to " << end << " " << std::endl; std::cerr.flush();
-	//std::cerr << "begins " << begins.capacity() << std::endl; std::cerr.flush();
-
-	unsigned long index = start;
-	//always search for "\n@" to dismiss any @ contained in quality
-	//special case for first: could be at beginning of file, therefore there would be no \n before
-	char* first = strchr(openfile + index, '@');
-	if (index > 0) {
-		while (*(first-1) != '\n') {
-			first = strchr(first+1, '@');
-		}
+	char* pos = openfile + start;
+	pos = strchr(pos, '\n');
+	while (pos <= openfile + end) {
+		pos++;
+		begins.emplace_back(pos - openfile);
+		pos = strchr(pos, '\n');
 	}
-	index = first - openfile;
-	begins.emplace_back(index);
-	index++;
-
-	while (index < end) {
-		first = strchr(openfile + index, '@');
-		if (index > 0) {
-			while (*(first - 1) != '\n') {
-				first = strchr(first+1, '@');
-			}
-		}
-		index = first - openfile;
-		begins.emplace_back(index);
-		index++;
-	}
-	//std::cerr << "[DONE] From " << start << " to " << end << " " << std::endl; std::cerr.flush();
-
-	//return true;
 }
