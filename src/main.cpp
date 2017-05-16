@@ -1684,6 +1684,8 @@ int main(int argc, char *argv[]) {
         usagePseudo(false);
         exit(1);
       } else {
+		  clock_t beforec, afterc;
+		  time_t beforet, aftert;
         // pseudoalign the reads
         KmerIndex index(opt);
         index.load(opt);
@@ -1692,8 +1694,14 @@ int main(int argc, char *argv[]) {
         int num_processed = 0;
 
         if (!opt.batch_mode) {
-          num_processed = ProcessReads(index, opt, collection);
-          collection.write((opt.output + "/pseudoalignments"));
+			beforec = clock();
+			beforet = time(NULL);
+			num_processed = ProcessReads(index, opt, collection);
+			aftert = time(NULL);
+			afterc = clock();
+			std::cout << "clock time: " << (afterc - beforec) / CLOCKS_PER_SEC << std::endl;
+			std::cout << "wall time: " << (aftert - beforet)  << std::endl;
+			collection.write((opt.output + "/pseudoalignments"));
         } else {
 
           std::vector<std::vector<int>> batchCounts;

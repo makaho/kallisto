@@ -266,7 +266,7 @@ void MasterProcessor::processReads() {
 	std::cerr << "It took " << (aft - bef) / CLOCKS_PER_SEC << " s to index sequences." << std::endl;
 	std::cout << "Lines: " << lines.size() << " bzw: " << lines.size() / 4 << " reads." << std::endl;
 */
-	bef = clock();
+/*	bef = clock();
 	std::vector<unsigned long> indices;
 	indices.reserve(sf1.st_size / 300);
 	std::vector<unsigned int> lengths;
@@ -275,14 +275,18 @@ void MasterProcessor::processReads() {
 	aft = clock();
 	std::cerr << "It took " << (aft - bef) / CLOCKS_PER_SEC << " s to index sequences." << std::endl;
 	std::cerr << "Found " << indices.size() << " reads." << std::endl; std::cerr.flush();
-	
+*/
+
+	std::vector<unsigned long> indices(1);
+	std::vector<unsigned int> lengths(1);
 
   // start worker threads
   if (!opt.batch_mode) {
 	  std::vector<std::thread> workers;
-	  unsigned long stepsize = (indices.size()/opt.threads) + 1;
+	  unsigned long stepsize = (sf1.st_size/opt.threads) + 1;
 	  for (int i = 0; i < opt.threads; i++) {
-		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths),i*stepsize, std::min<unsigned long>(indices.size()-1, ((i+1)*stepsize)-1))));
+		  //std::cout << "Launched thread " << i << " from: " << i*stepsize << " to " << std::min<unsigned long>(sf1.st_size - 1, (i + 1)*stepsize) << std::endl;
+		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths),i*stepsize, std::min<unsigned long>(sf1.st_size -1, (i+1)*stepsize))));
 	  }
 
 	  // let the workers do their thing
@@ -542,56 +546,57 @@ ReadProcessor::ReadProcessor(ReadProcessor && o) :
   names(std::move(o.names)),
   quals(std::move(o.quals)),
   umis(std::move(o.umis)),
-  newEcs(std::move(o.newEcs)),
-  flens(std::move(o.flens)),
-  bias5(std::move(o.bias5)),
-  batchSR(std::move(o.batchSR)),
-  counts(std::move(o.counts)) {
-  buffer = o.buffer;
-  o.buffer = nullptr;
-  o.bufsize = 0;
+newEcs(std::move(o.newEcs)),
+flens(std::move(o.flens)),
+bias5(std::move(o.bias5)),
+batchSR(std::move(o.batchSR)),
+counts(std::move(o.counts)) {
+	buffer = o.buffer;
+	o.buffer = nullptr;
+	o.bufsize = 0;
 }
 
 ReadProcessor::~ReadProcessor() {
-  if (buffer != nullptr) {
-      delete[] buffer;
-      buffer = nullptr;
-  }
+	if (buffer != nullptr) {
+		delete[] buffer;
+		buffer = nullptr;
+	}
 }
 
 void ReadProcessor::operator()() {
-/*  while (true) {
-    // grab the reader lock
-    if (mp.opt.batch_mode) {
-      if (batchSR.empty()) {
-        return;
-      } else {
-        batchSR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, false);
-      }
-    } else {
-      std::lock_guard<std::mutex> lock(mp.reader_lock);
-      if (mp.SR.empty()) {
-        // nothing to do
-        return;
-      } else {
-        // get new sequences
-        mp.SR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, mp.opt.pseudobam || mp.opt.fusion);
-      }
-      // release the reader lock
-    }
-*/
-    // process our sequences
-	myProcessBuffer();
+	/*  while (true) {
+		// grab the reader lock
+		if (mp.opt.batch_mode) {
+		  if (batchSR.empty()) {
+			return;
+		  } else {
+			batchSR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, false);
+		  }
+		} else {
+		  std::lock_guard<std::mutex> lock(mp.reader_lock);
+		  if (mp.SR.empty()) {
+			// nothing to do
+			return;
+		  } else {
+			// get new sequences
+			mp.SR.fetchSequences(buffer, bufsize, seqs, names, quals, umis, mp.opt.pseudobam || mp.opt.fusion);
+		  }
+		  // release the reader lock
+		}
+	*/
+	// process our sequences
+	unsigned long reads = myProcessBuffer();
 	//processBuffer();
 
-    // update the results, MP acquires the lock
-	std::cerr << "mp.update()" << std::endl;
-	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? (stop-start)/2 : stop - start, flens, bias5, id);
+	// update the results, MP acquires the lock
+	//std::cerr << "mp.update()" << std::endl; std::cerr.flush();
+	mp.update(counts, newEcs, ec_umi, new_ec_umi, paired ? reads / 2 : reads, flens, bias5, id);
 	clear();
- //}
+	//}
 }
 
-void ReadProcessor::myProcessBuffer() {
+unsigned long ReadProcessor::myProcessBuffer() {
+	unsigned long myReadCounter = 0;
 	// set up thread variables
 	std::vector<std::pair<KmerEntry, int>> v1, v2;
 	std::vector<int> vtmp;
@@ -602,8 +607,7 @@ void ReadProcessor::myProcessBuffer() {
 	v2.reserve(1000);
 	vtmp.reserve(1000);
 
-	const char* s1 = 0;
-	const char* s2 = 0;
+	bool first = true;
 	int l1, l2;
 
 	bool findFragmentLength = (mp.opt.fld == 0) && (mp.tlencount < 10000);
@@ -638,23 +642,116 @@ void ReadProcessor::myProcessBuffer() {
 	}
 
 
-	char * temp = new char[4096];
-	// actually process the sequences
-	for (unsigned long i = start; i <= stop; ++i) {
-		s1 = fastqfile + indices[i];
+	char * s1 = new char[4096];
+	char * s2 = new char[4096];
 
-		l1 = lengths[i];// strchr(s1, '\n') - s1 + 1;
-		memcpy(temp, s1, l1);
-		s1 = temp;
+	char* pos = fastqfile + start;
+	char* poslen;
+	/* Finds first read (we could be anywhere in the file*/
+	bool foundFirst = false;
+	while (foundFirst == false) {
+		char* atPos = strchr(pos, '@');
+		if (atPos - fastqfile == 0) {
+			//we are in the first line of the file, we can start here
+			pos = strchr(atPos, '\n');
+			pos++;
+			//line 1 done
+			poslen = strchr(pos, '\n');
+			l1 = poslen - pos;
+			memcpy(s1, pos, l1 + 1);
+			pos = poslen + 1;
+			//line 2 done
+			pos = strchr(pos, '\n');
+			pos++;
+			//line 3 done
+			pos = strchr(pos, '\n');
+			pos++;
+			//line 4 done
+			foundFirst = true;
+			break;
+		}
+		//found @-sign - is previous char a linebreak?, else skip and continue
+		if (*(atPos - 1) == '\n') {
+			//first check passed, now:
+			//is the second following line starting with a plus?
+			char* plusPos = strchr(atPos, '\n');
+			plusPos++;
+			plusPos = strchr(plusPos, '\n');
+			plusPos++;
+			if (*plusPos == '+') {
+				//found a valid read
+				pos = strchr(atPos, '\n');
+				pos++;
+				//line 1 done
+				poslen = strchr(pos, '\n');
+				l1 = poslen - pos;
+				memcpy(s1, pos, l1 + 1);
+				pos = poslen + 1;
+				//line 2 done
+				pos = strchr(pos, '\n');
+				pos++;
+				//line 3 done
+				pos = strchr(pos, '\n');
+				pos++;
+				//line 4 done
+				foundFirst = true;
+			}
+			else {
+				//std::cout << "no plus-sign at relevant line @-sign but: " << *(plusPos)  << std::endl;
+				//not a starting @-sign - try again starting from next @-sign
+				pos = atPos + 1;
+			}
+
+		} else {
+			//std::cout << "no line break before @-sign but: " << *(atPos - 1) << std::endl;
+			pos = atPos + 1;
+		}
+	}
+
+	// actually process the sequences
+	while (true) {
+		if (pos >= fastqfile + stop - 10) {
+			break;
+		}
+		if (first) {
+			//first read was laoded outside, do nothing
+			first = false;
+			//std::cout << "made it into main loop..." << std::endl;
+		}
+		else {
+			//second or later read, must be laoded here
+			pos = strchr(pos, '\n');
+			pos++;
+			//line 1 done
+			poslen = strchr(pos, '\n');
+			l1 = poslen - pos;
+			memcpy(s1, pos, l1 + 1);
+			pos = poslen + 1;
+			//line 2 done
+			pos = strchr(pos, '\n');
+			pos++;
+			//line 3 done
+			pos = strchr(pos, '\n');
+			pos++;
+			//line 4 done
+			foundFirst = true;
+		}
+		//s1 = fastqfile + indices[i];
+
+		//l1 = lengths[i];// strchr(s1, '\n') - s1 + 1;
+		//memcpy(temp, s1, l1);
+		//s1 = temp;
 
 		if (paired) {
-			i++;
-			s2 = fastqfile + indices[i];
-			l2 = strchr(s2, '\n') - s2;
+		//	i++;
+		//	s2 = fastqfile + indices[i];
+		//	l2 = strchr(s2, '\n') - s2;
+			assert(true == false);
 		}
 
 
 		numreads++;
+		myReadCounter++;
 		v1.clear();
 		v2.clear();
 		u.clear();
@@ -670,7 +767,7 @@ void ReadProcessor::myProcessBuffer() {
 		int r = tc.intersectKmers(v1, v2, !paired, u);
 		if (u.empty()) {
 			if (mp.opt.fusion && !(v1.empty() || v2.empty())) {
-				searchFusion(index, mp.opt, tc, mp, ec, names[i - 1].first, s1, v1, names[i].first, s2, v2, paired);
+				searchFusion(index, mp.opt, tc, mp, ec, names[myReadCounter - 1].first, s1, v1, names[myReadCounter].first, s2, v2, paired);
 			}
 		}
 		else {
@@ -791,11 +888,12 @@ void ReadProcessor::myProcessBuffer() {
 				}
 			}
 			else {
+				
 				if (ec == -1 || ec >= counts.size()) {
-					new_ec_umi.emplace_back(u, std::move(umis[i]));
+					new_ec_umi.emplace_back(u, std::move(umis[myReadCounter]));
 				}
 				else {
-					ec_umi.emplace_back(ec, std::move(umis[i]));
+					ec_umi.emplace_back(ec, std::move(umis[myReadCounter]));
 				}
 			}
 
@@ -821,7 +919,8 @@ void ReadProcessor::myProcessBuffer() {
 
 		// pseudobam
 		if (mp.opt.pseudobam) {
-			if (paired) {
+			assert(true == false);
+			/*if (paired) {
 				outputPseudoBam(index, u,
 					s1, names[i - 1].first.c_str(), quals[i - 1].first.c_str(), l1, names[i - 1].second, v1,
 					s2, names[i].first.c_str(), quals[i].first.c_str(), l2, names[i].second, v2,
@@ -832,7 +931,7 @@ void ReadProcessor::myProcessBuffer() {
 					s1, names[i].first.c_str(), quals[i].first.c_str(), l1, names[i].second, v1,
 					nullptr, nullptr, nullptr, 0, 0, v2,
 					paired);
-			}
+			}*/
 		}
 
 
@@ -842,7 +941,7 @@ void ReadProcessor::myProcessBuffer() {
 		std::cerr << "[quant] Processed " << pretty_num(numreads) << std::endl;
 		}*/
 	}
-
+	return myReadCounter;
 }
 
 void ReadProcessor::processBuffer() {

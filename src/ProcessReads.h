@@ -155,7 +155,7 @@ public:
 
   void operator()();
   void processBuffer();
-  void myProcessBuffer();
+  unsigned long myProcessBuffer();
   void clear();
 };
 
