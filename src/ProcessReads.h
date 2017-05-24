@@ -122,7 +122,7 @@ public:
 
 class ReadProcessor {
 public:
-  ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* fastqfile, std::vector<unsigned long> &indices, std::vector<unsigned int> &lengths, unsigned long start, unsigned long stop, int id = -1);
+  ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* fastqfile, std::vector<unsigned long> &indices, std::vector<unsigned int> &lengths, unsigned long start, unsigned long stop, char* fastq2file, std::vector<unsigned long> &indices2, std::vector<unsigned int> &lengths2, unsigned long start2, unsigned long stop2, int id = -1);
   ReadProcessor(ReadProcessor && o);
   ~ReadProcessor();
   char *buffer;
@@ -137,11 +137,19 @@ public:
   int numreads;
   int id;
 
+  //fastqfile and related stuff
   std::vector<unsigned long>& indices;
   std::vector<unsigned int>& lengths;
   unsigned long start;
   unsigned long stop;
   char* fastqfile;
+
+  //second file, if paired
+  std::vector<unsigned long>& indices2;
+  std::vector<unsigned int>& lengths2;
+  unsigned long start2;
+  unsigned long stop2;
+  char* fastq2file;
 
   std::vector<std::pair<std::string, int>> seqs;
   std::vector<std::pair<std::string, int>> names;

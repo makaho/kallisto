@@ -223,14 +223,28 @@ int ProcessReads(KmerIndex& index, const ProgramOptions& opt, MinCollector& tc) 
 void MasterProcessor::processReads() {
 
 	//my test
-	struct stat sf1;
+	struct stat sf1, sf2;
+	int pf1, pf2;
+	char* mf1, *mf2;
+	unsigned long of1, of2;
+
 	if (stat(opt.files[0].c_str(), &sf1) == -1) {
 		perror("stat failed");
 		exit(1);
 	}	
-	int pf1 = open(opt.files[0].c_str(), O_RDONLY);
-	char* mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
-	unsigned long of1 = 0;
+	pf1 = open(opt.files[0].c_str(), O_RDONLY);
+	mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
+	of1 = 0;
+
+	if (!opt.single_end) {
+		if (stat(opt.files[1].c_str(), &sf2) == -1) {
+			perror("stat failed");
+			exit(1);
+		}
+		pf2 = open(opt.files[1].c_str(), O_RDONLY);
+		mf2 = (char *)mmap(0, sf2.st_size, PROT_READ, MAP_SHARED, pf2, 0);
+		of2 = 0;
+	}
 
 	////////////////////////remove me start
 	clock_t bef, aft;
@@ -283,10 +297,14 @@ void MasterProcessor::processReads() {
   // start worker threads
   if (!opt.batch_mode) {
 	  std::vector<std::thread> workers;
-	  unsigned long stepsize = (sf1.st_size/opt.threads) + 1;
+	  unsigned long stepsize = (sf1.st_size / opt.threads) + 1;
+	  unsigned long stepsize2;
+	  if (!opt.single_end) {
+		  stepsize2 = (sf2.st_size / opt.threads) + 1;
+	  }
 	  for (int i = 0; i < opt.threads; i++) {
 		  //std::cout << "Launched thread " << i << " from: " << i*stepsize << " to " << std::min<unsigned long>(sf1.st_size - 1, (i + 1)*stepsize) << std::endl;
-		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths),i*stepsize, std::min<unsigned long>(sf1.st_size -1, (i+1)*stepsize))));
+		  workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths),i*stepsize, std::min<unsigned long>(sf1.st_size -1, (i+1)*stepsize), mf2, std::ref(indices), std::ref(lengths), i*stepsize2, std::min<unsigned long>(sf2.st_size - 1, (i + 1)*stepsize2))));
 	  }
 
 	  // let the workers do their thing
@@ -315,7 +333,7 @@ void MasterProcessor::processReads() {
       int nt = std::min(opt.threads, (num_ids - id));
 	  unsigned int stepsize = (indices.size() / opt.threads) + 1;
       for (int i = 0; i < nt; i++,id++) {
-        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths), i*stepsize, (i + 1)*stepsize - 1, id)));
+        workers.emplace_back(std::thread(ReadProcessor(index, opt, tc, *this, mf1, std::ref(indices), std::ref(lengths), i*stepsize, (i + 1)*stepsize - 1, mf1, std::ref(indices), std::ref(lengths), i*stepsize, (i + 1)*stepsize - 1, id)));
       }
       
       for (int i = 0; i < nt; i++) {
@@ -498,8 +516,8 @@ void MasterProcessor::outputFusion(const std::stringstream &o) {
 }
 
 
-ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* pfastqfile, std::vector<unsigned long>& pindices, std::vector<unsigned int> &plengths, unsigned long pstart, unsigned long pstop, int _id) :
- paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id), indices(pindices), lengths(plengths) {
+ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, const MinCollector& tc, MasterProcessor& mp, char* pfastqfile, std::vector<unsigned long>& pindices, std::vector<unsigned int> &plengths, unsigned long pstart, unsigned long pstop, char* pfastq2file, std::vector<unsigned long>& pindices2, std::vector<unsigned int> &plengths2, unsigned long pstart2, unsigned long pstop2, int _id) :
+ paired(!opt.single_end), tc(tc), index(index), mp(mp), id(_id), indices(pindices), lengths(plengths), indices2(pindices2), lengths2(plengths2) {
 
     // initialize buffer
    bufsize = 1ULL << 8;
@@ -519,6 +537,11 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
    lengths = plengths;
    start = pstart;
    stop = pstop;
+   fastq2file = pfastq2file;
+   indices2 = pindices2;
+   lengths2 = plengths2;
+   start2 = pstart2;
+   stop2 = pstop2;
 
    seqs.reserve(bufsize / 50);
    if (opt.umi) {
@@ -530,12 +553,17 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
 }
 
 ReadProcessor::ReadProcessor(ReadProcessor && o) :
-  fastqfile(o.fastqfile),
-  indices(o.indices),
-  lengths(o.lengths),
-  start(o.start),
-  stop(o.stop),
-  paired(o.paired),
+	fastqfile(o.fastqfile),
+	indices(o.indices),
+	lengths(o.lengths),
+	start(o.start),
+	stop(o.stop),
+	fastq2file(o.fastq2file),
+	indices2(o.indices2),
+	lengths2(o.lengths2),
+	start2(o.start2),
+	stop2(o.stop2),
+	paired(o.paired),
   tc(o.tc),
   index(o.index),
   mp(o.mp),
@@ -702,9 +730,77 @@ unsigned long ReadProcessor::myProcessBuffer() {
 				pos = atPos + 1;
 			}
 
-		} else {
+		}
+		else {
 			//std::cout << "no line break before @-sign but: " << *(atPos - 1) << std::endl;
 			pos = atPos + 1;
+		}
+	}
+
+	char* pos2;
+	char* poslen2;
+	if (paired) {
+		pos2 = fastq2file + start2;
+		/* Finds first read (we could be anywhere in the file*/
+		bool foundFirst2 = false;
+		while (foundFirst2 == false) {
+			char* atPos2 = strchr(pos2, '@');
+			if (atPos2 - fastq2file == 0) {
+				//we are in the first line of the file, we can start here
+				pos2 = strchr(atPos2, '\n');
+				pos2++;
+				//line 1 done
+				poslen2 = strchr(pos2, '\n');
+				l2 = poslen2 - pos2;
+				memcpy(s2, pos2, l2 + 1);
+				pos2 = poslen2 + 1;
+				//line 2 done
+				pos2 = strchr(pos2, '\n');
+				pos2++;
+				//line 3 done
+				pos2 = strchr(pos2, '\n');
+				pos2++;
+				//line 4 done
+				foundFirst2 = true;
+				break;
+			}
+			//found @-sign - is previous char a linebreak?, else skip and continue
+			if (*(atPos2 - 1) == '\n') {
+				//first check passed, now:
+				//is the second following line starting with a plus?
+				char* plusPos2 = strchr(atPos2, '\n');
+				plusPos2++;
+				plusPos2 = strchr(plusPos2, '\n');
+				plusPos2++;
+				if (*plusPos2 == '+') {
+					//found a valid read
+					pos2 = strchr(atPos2, '\n');
+					pos2++;
+					//line 1 done
+					poslen2 = strchr(pos2, '\n');
+					l2 = poslen2 - pos2;
+					memcpy(s2, pos2, l2 + 1);
+					pos2 = poslen2 + 1;
+					//line 2 done
+					pos2 = strchr(pos2, '\n');
+					pos2++;
+					//line 3 done
+					pos2 = strchr(pos2, '\n');
+					pos2++;
+					//line 4 done
+					foundFirst2 = true;
+				}
+				else {
+					//std::cout << "no plus-sign at relevant line @-sign but: " << *(plusPos)  << std::endl;
+					//not a starting @-sign - try again starting from next @-sign
+					pos2 = atPos2 + 1;
+				}
+
+			}
+			else {
+				//std::cout << "no line break before @-sign but: " << *(atPos - 1) << std::endl;
+				pos2 = atPos2 + 1;
+			}
 		}
 	}
 
@@ -734,7 +830,23 @@ unsigned long ReadProcessor::myProcessBuffer() {
 			pos = strchr(pos, '\n');
 			pos++;
 			//line 4 done
-			foundFirst = true;
+			if (paired) {
+				//second or later read, must be laoded here
+				pos2 = strchr(pos2, '\n');
+				pos2++;
+				//line 1 done
+				poslen2 = strchr(pos2, '\n');
+				l2 = poslen2 - pos2;
+				memcpy(s2, pos2, l2 + 1);
+				pos2 = poslen2 + 1;
+				//line 2 done
+				pos2 = strchr(pos2, '\n');
+				pos2++;
+				//line 3 done
+				pos2 = strchr(pos2, '\n');
+				pos2++;
+				//line 4 done
+			}
 		}
 		//s1 = fastqfile + indices[i];
 
@@ -742,12 +854,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 		//memcpy(temp, s1, l1);
 		//s1 = temp;
 
-		if (paired) {
-		//	i++;
-		//	s2 = fastqfile + indices[i];
-		//	l2 = strchr(s2, '\n') - s2;
-			assert(true == false);
-		}
+
 
 
 		numreads++;
