@@ -687,6 +687,8 @@ unsigned long ReadProcessor::myProcessBuffer() {
 			poslen = strchr(pos, '\n');
 			l1 = poslen - pos;
 			memcpy(s1, pos, l1 + 1);
+			//*poslen = '\0';
+//			s1 = pos;
 			pos = poslen + 1;
 			//line 2 done
 			pos = strchr(pos, '\n');
@@ -714,6 +716,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 				poslen = strchr(pos, '\n');
 				l1 = poslen - pos;
 				memcpy(s1, pos, l1 + 1);
+//				s1 = pos;
 				pos = poslen + 1;
 				//line 2 done
 				pos = strchr(pos, '\n');
@@ -753,6 +756,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 				poslen2 = strchr(pos2, '\n');
 				l2 = poslen2 - pos2;
 				memcpy(s2, pos2, l2 + 1);
+//				s2 = pos2;
 				pos2 = poslen2 + 1;
 				//line 2 done
 				pos2 = strchr(pos2, '\n');
@@ -780,6 +784,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 					poslen2 = strchr(pos2, '\n');
 					l2 = poslen2 - pos2;
 					memcpy(s2, pos2, l2 + 1);
+//					s2 = pos2;
 					pos2 = poslen2 + 1;
 					//line 2 done
 					pos2 = strchr(pos2, '\n');
@@ -822,6 +827,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 			poslen = strchr(pos, '\n');
 			l1 = poslen - pos;
 			memcpy(s1, pos, l1 + 1);
+//			s1 = pos;
 			pos = poslen + 1;
 			//line 2 done
 			pos = strchr(pos, '\n');
@@ -838,6 +844,7 @@ unsigned long ReadProcessor::myProcessBuffer() {
 				poslen2 = strchr(pos2, '\n');
 				l2 = poslen2 - pos2;
 				memcpy(s2, pos2, l2 + 1);
+//				s2 = pos2;
 				pos2 = poslen2 + 1;
 				//line 2 done
 				pos2 = strchr(pos2, '\n');
