@@ -1525,13 +1525,13 @@ int main(int argc, char *argv[]) {
 
         H5Writer writer;
         if (!opt.plaintext) {
-          writer.init(opt.output + "/" + opt.output_filename_prefix + "/abundance.h5", opt.bootstrap, num_processed, fld, preBias, em.post_bias_, 6,
+          writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, num_processed, fld, preBias, em.post_bias_, 6,
               index.INDEX_VERSION, call, start_time);
           writer.write_main(em, index.target_names_, index.target_lens_);
         }
 
         plaintext_aux(
-            opt.output + "/" + opt.output_filename_prefix + "/run_info.json",
+            opt.output + "/" + opt.output_filename_prefix + "run_info.json",
             std::string(std::to_string(index.num_trans)),
             std::string(std::to_string(opt.bootstrap)),
             std::string(std::to_string(num_processed)),
@@ -1540,7 +1540,7 @@ int main(int argc, char *argv[]) {
             start_time,
             call);
 
-        plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "/abundance.tsv", em.target_names_,
+        plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", em.target_names_,
             em.alpha_, em.eff_lens_, index.target_lens_);
 
         if (opt.bootstrap > 0) {
@@ -1635,12 +1635,12 @@ int main(int argc, char *argv[]) {
 
         if (!opt.plaintext) {
           // setting num_processed to 0 because quant-only is for debugging/special ops
-          writer.init(opt.output + "/" + opt.output_filename_prefix + "/abundance.h5", opt.bootstrap, 0, fld, preBias, em.post_bias_, 6,
+          writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, 0, fld, preBias, em.post_bias_, 6,
               index.INDEX_VERSION, call, start_time);
           writer.write_main(em, index.target_names_, index.target_lens_);
         } else {
           plaintext_aux(
-              opt.output + "/" + opt.output_filename_prefix + "/run_info.json",
+              opt.output + "/" + opt.output_filename_prefix + "run_info.json",
               std::string(std::to_string(index.num_trans)),
               std::string(std::to_string(opt.bootstrap)),
               std::string(std::to_string(0)),
@@ -1649,7 +1649,7 @@ int main(int argc, char *argv[]) {
               start_time,
               call);
 
-          plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "/abundance.tsv", em.target_names_,
+          plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", em.target_names_,
               em.alpha_, em.eff_lens_, index.target_lens_);
         }
 
@@ -1721,7 +1721,7 @@ int main(int argc, char *argv[]) {
 			afterc = clock();
 			std::cout << "clock time: " << (afterc - beforec) / CLOCKS_PER_SEC << std::endl;
 			std::cout << "wall time: " << (aftert - beforet)  << std::endl;
-			collection.write((opt.output + "/" + opt.output_filename_prefix + "/pseudoalignments"));
+			collection.write((opt.output + "/" + opt.output_filename_prefix + "pseudoalignments"));
         } else {
 
           std::vector<std::vector<int>> batchCounts;
@@ -1735,13 +1735,13 @@ int main(int argc, char *argv[]) {
           }
           */
 
-          writeBatchMatrix((opt.output + "/" + opt.output_filename_prefix + "/matrix"),index, opt.batch_ids,batchCounts);
+          writeBatchMatrix((opt.output + "/" + opt.output_filename_prefix + "matrix"),index, opt.batch_ids,batchCounts);
         }
 
         std::string call = argv_to_string(argc, argv);
 
         plaintext_aux(
-            opt.output + "/" + opt.output_filename_prefix + "/run_info.json",
+            opt.output + "/" + opt.output_filename_prefix + "run_info.json",
             std::string(std::to_string(index.num_trans)),
             std::string(std::to_string(0)), // no bootstraps in pseudo
             std::string(std::to_string(num_processed)),
@@ -1862,17 +1862,17 @@ int main(int argc, char *argv[]) {
 			std::string call = argv_to_string(argc, argv);
 
 			//save tsv
-			plaintext_writer_single_cell(opt.output + "/" + opt.output_filename_prefix + "/abundance.tsv", opt.batch_ids,
+			plaintext_writer_single_cell(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", opt.batch_ids,
 				index.target_names_, alphas, eff_lens, opt.estimated_counts);
 
 			//save h5 as well
 			H5Writer writer;
-			writer.init(opt.output + "/" + opt.output_filename_prefix + "/abundance.h5", opt.bootstrap, num_processed, fld, preBias, post_bias, 6,
+			writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, num_processed, fld, preBias, post_bias, 6,
 				index.INDEX_VERSION, call, start_time);
 			writer.write_single_main(number_of_cells, alphas, eff_lens, index.target_names_, index.target_lens_);
 
 			plaintext_aux(
-				opt.output + "/" + opt.output_filename_prefix + "/run_info.json",
+				opt.output + "/" + opt.output_filename_prefix + "run_info.json",
 				std::string(std::to_string(index.num_trans)),
 				std::string(std::to_string(opt.bootstrap)),
 				std::string(std::to_string(num_processed)),
