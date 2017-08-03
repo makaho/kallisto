@@ -863,7 +863,8 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
 
   kmap.clear();
   if (loadKmerTable) {
-    kmap.reserve(kmap_size);
+    // Reserve the hash table so that it is slightly larger than  kmap_size/opt.ht_load_factor size
+    kmap.reserve(kmap_size  * 1.0 / opt.ht_load_factor + (1L<<10));
   }
 
   // 6. read kmer->ec values

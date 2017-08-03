@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#define DEFAULT_HT_LOAD_FACTOR (0.8)
+
 struct ProgramOptions {
   bool verbose;
   int threads;
@@ -18,6 +20,7 @@ struct ProgramOptions {
   size_t seed;
   double fld;
   double sd;
+  double ht_load_factor;
   int min_range;
   int bootstrap;
   std::vector<std::string> transfasta;
@@ -66,7 +69,8 @@ ProgramOptions() :
   strand(StrandType::None),
   umi(false),
   estimated_counts(false),
-  output_filename_prefix("") 
+  output_filename_prefix(""),
+  ht_load_factor(DEFAULT_HT_LOAD_FACTOR)
   {}
 };
 

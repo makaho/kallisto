@@ -93,7 +93,7 @@ struct DBGraph {
 
 
 struct KmerIndex {
-  KmerIndex(const ProgramOptions& opt) : k(opt.k), num_trans(0), skip(opt.skip), target_seqs_loaded(false) {
+  KmerIndex(const ProgramOptions& opt) : k(opt.k), num_trans(0), skip(opt.skip), target_seqs_loaded(false), kmap(opt.ht_load_factor) {
     //LoadTranscripts(opt.transfasta);
   }
 

@@ -17,6 +17,8 @@ if(CMAKE_BUILD_TYPE MATCHES Profile)
 	add_compile_options(-g)
 endif(CMAKE_BUILD_TYPE MATCHES Profile)
 
+link_libraries(numa)
+
 if(LINK MATCHES static)
     message("static build")
 ELSE(LINK MATCHES shared)

@@ -32,7 +32,7 @@ using namespace std;
 void ParseOptionsIndex(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
   int make_unique_flag = 0;
-  const char *opt_string = "i:k:";
+  const char *opt_string = "z:i:k:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -40,6 +40,8 @@ void ParseOptionsIndex(int argc, char **argv, ProgramOptions& opt) {
     // short args
     {"index", required_argument, 0, 'i'},
     {"kmer-size", required_argument, 0, 'k'},
+    // load factor on the hash table
+    {"ht-load-factor", required_argument, 0, 'z'},
     {0,0,0,0}
   };
   int c;
@@ -61,6 +63,14 @@ void ParseOptionsIndex(int argc, char **argv, ProgramOptions& opt) {
     case 'k': {
       stringstream(optarg) >> opt.k;
       break;
+    }
+    case 'z':{
+        stringstream(optarg) >> opt.ht_load_factor;
+        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+              cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:"<< DEFAULT_HT_LOAD_FACTOR << endl;
+              opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+        }
+        break;
     }
     default: break;
     }
@@ -84,7 +94,7 @@ void ParseOptionsInspect(int argc, char **argv, ProgramOptions& opt) {
   const char *opt_string = "";
   static struct option long_options[] = {
     // long args
-    {"gfa", required_argument, 0, 'g'},
+    {"z:gfa", required_argument, 0, 'g'},
     {0,0,0,0}
   };
 
@@ -104,6 +114,14 @@ void ParseOptionsInspect(int argc, char **argv, ProgramOptions& opt) {
       opt.gfa = optarg;
       break;
     }
+    case 'z':{
+        stringstream(optarg) >> opt.ht_load_factor;
+        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+              cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:"<< DEFAULT_HT_LOAD_FACTOR << endl;
+              opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+        }
+        break;
+    }
     default: break;
     }
   }
@@ -121,7 +139,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int fusion_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:n:m:d:b:p:";
+  const char *opt_string = "z:t:i:l:s:o:n:m:d:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -143,6 +161,8 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     {"iterations", required_argument, 0, 'n'},
     {"min-range", required_argument, 0, 'm'},
     {"bootstrap-samples", required_argument, 0, 'b'},
+    // load factor on the hash table
+    {"ht-load-factor", required_argument, 0, 'z'},
 	{ "output_filename_prefix", required_argument, 0, 'p' },
 	{0,0,0,0}
   };
@@ -196,6 +216,14 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     case 'd': {
       stringstream(optarg) >> opt.seed;
       break;
+    }
+    case 'z':{
+        stringstream(optarg) >> opt.ht_load_factor;
+        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+              cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:"<< DEFAULT_HT_LOAD_FACTOR << endl;
+              opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+        }
+        break;
     }
     default: break;
     }
@@ -249,7 +277,7 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
   int plaintext_flag = 0;
 
-  const char *opt_string = "t:s:l:s:o:n:m:d:b:p:";
+  const char *opt_string = "z:t:s:l:s:o:n:m:d:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -263,6 +291,8 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
     {"iterations", required_argument, 0, 'n'},
     {"min-range", required_argument, 0, 'm'},
     {"bootstrap-samples", required_argument, 0, 'b'},
+    // load factor on the hash table
+    {"ht-load-factor", required_argument, 0, 'z'},
 	{ "output_filename_prefix", required_argument, 0, 'p' },
 	{0,0,0,0}
   };
@@ -313,6 +343,14 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
       stringstream(optarg) >> opt.seed;
       break;
     }
+    case 'z':{
+        stringstream(optarg) >> opt.ht_load_factor;
+        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+              cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:" <<DEFAULT_HT_LOAD_FACTOR<< endl;
+              opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+        }
+        break;
+    }
     default: break;
     }
   }
@@ -333,7 +371,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int umi_flag = 0;
 
-  const char *opt_string = "t:i:l:s:o:b:p:";
+  const char *opt_string = "z:t:i:l:s:o:b:p:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -348,6 +386,8 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     {"fragment-length", required_argument, 0, 'l'},
     {"sd", required_argument, 0, 's'},
     {"output-dir", required_argument, 0, 'o'},
+    // load factor on the hash table
+    {"ht-load-factor", required_argument, 0, 'z'},
 	{ "output_filename_prefix", required_argument, 0, 'p' },
 	{0,0,0,0}
   };
@@ -392,6 +432,14 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
       opt.batch_file_name = optarg;
       break;
     }
+    case 'z':{
+        stringstream(optarg) >> opt.ht_load_factor;
+        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+              cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:" << DEFAULT_HT_LOAD_FACTOR << endl;
+              opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+        }
+        break;
+    }
     default: break;
     }
   }
@@ -432,7 +480,7 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 	int pbam_flag = 0;
 	int umi_flag = 0;
 
-	const char *opt_string = "t:i:l:s:o:b:e:p:";
+	const char *opt_string = "z:t:i:l:s:o:b:e:p:";
 	static struct option long_options[] = {
 		// long args
 		{ "verbose", no_argument, &verbose_flag, 1 },
@@ -449,6 +497,8 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 		{ "sd", required_argument, 0, 's' },
 		{ "output-dir", required_argument, 0, 'o' },
 		{ "output_filename_prefix", required_argument, 0, 'p' },
+                // load factor on the hash table
+                {"ht-load-factor", required_argument, 0, 'z'},
 		{ 0,0,0,0 }
 	};
 	int c;
@@ -496,6 +546,14 @@ void ParseOptionsSinglecell(int argc, char **argv, ProgramOptions& opt) {
 			opt.estimated_counts = true;
 			break;
 		}
+                case 'z':{
+                        stringstream(optarg) >> opt.ht_load_factor;
+                        if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+                            cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:" << DEFAULT_HT_LOAD_FACTOR  << endl;
+                            opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+                        }
+                        break;
+                }
 		default: break;
 		}
 	}
