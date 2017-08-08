@@ -797,7 +797,7 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   int map_fd;
   char *index_map;
   struct stat sbuf;
-  size_t index_map_offset;
+  size_t index_map_offset=0;
 
   // find file size
   if (stat(index_in.c_str(), &sbuf) == -1) {

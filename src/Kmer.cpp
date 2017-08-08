@@ -142,6 +142,11 @@ void Kmer::set_deleted() {
   memset(bytes,0xff,MAX_K/4);
 }
 
+#ifdef USE_CUSTOM_HASH_ALLOCATOR
+void Kmer::set_empty() {
+  memset(bytes,0x00,MAX_K/4);
+}
+#else
 // use:  km = Kmer();
 // pre:
 // post: The last 2 bits in the bit array which stores the DNA string hav been set to 01
@@ -150,7 +155,7 @@ void Kmer::set_empty() {
   memset(bytes,0xff,MAX_K/4);
   bytes[0] ^= 1; //
 }
-
+#endif
 
 // use:  b = (km1 < km2);
 // pre:

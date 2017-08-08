@@ -6,6 +6,7 @@
 #include <iterator>
 #include <sys/mman.h>
 #include <numa.h>
+#include <unistd.h>
 #include "common.h"
 
 /*#include <iostream> // debug
@@ -19,8 +20,14 @@
 #define MAP_HUGE_2MB ((21 << MAP_HUGE_SHIFT))
 #endif
 
-
+// Not thread safe
 class KmerHashAllocator {
+  private:
+  static size_t Roundup(size_t sz, size_t page_sz){
+    if (sz & (page_sz-1))
+        return (sz & ~(page_sz-1)) + page_sz;
+    return sz;
+  }
   public:
   static void * Allocate(size_t sz) {
      int flags =  MAP_PRIVATE | MAP_ANONYMOUS;
@@ -29,11 +36,27 @@ class KmerHashAllocator {
                            flags | MAP_HUGETLB, 
                            flags};
      void * p=MAP_FAILED;
-     
+
+     size_t  default_page_size = sysconf(_SC_PAGESIZE);
+
+     size_t  page_sz[4] = {1<<30,
+                       1<<21,
+                       default_page_size,
+                       default_page_size};
+ 
+
+     // we hide the size behind the real pointer to use it during deallocation
+     sz = sz + sizeof(size_t);
      int cur_flags_idx = 0;
      while (cur_flags_idx < 4) {
+         // Round to the nearest page size
+         sz = Roundup(sz, page_sz[cur_flags_idx]);
+ 
          p = mmap(0, sz, PROT_WRITE | PROT_READ, extra_flags[cur_flags_idx], 0, 0);
          if( p != MAP_FAILED) {
+             //printf("\n Allocated %lu at %p attempt %d\n", sz, p, cur_flags_idx);
+             // remember thr real allocation size
+             *(size_t*)p = sz;
              break;
          }
          cur_flags_idx ++;
@@ -41,10 +64,11 @@ class KmerHashAllocator {
     
      if (p == MAP_FAILED) {
          // could not allocate the required memory!
-         // fallback to default new
-         p = ::operator new(sz);
+         std::cerr << "Error! Failed to mmap() \n";
+         exit(-1);
      }
 
+#ifdef NUMA_INTERLEAVE
      // interleave memory on all NUMA nodes, if possible
      if(numa_available() != -1) {
         /* https://linux.die.net/man/2/mbind says:
@@ -58,16 +82,24 @@ class KmerHashAllocator {
             numa_interleave_memory(p, sz, mem_nodes);
         }
      }
+#endif
+     p = (void *)((size_t)p + sizeof(size_t));
      return p;
  }
 
-  static void Deallocate(void * p, size_t sz){
+  static void Deallocate(void * p){
+      // The real pointer is size_t behind p.
+      p = (void*)((size_t)p - sizeof(size_t));
+      // the real size is stored one behind
+      size_t sz = * (size_t*) p;
+      //printf("\nDeallocated  %lu at %p \n", sz, p);
       if (munmap(p, sz) != 0 ) {
           std::cerr << "Error! Failed to munmap() \n";
           exit(-1);
       }
   }
 };
+
 
 
 template<typename T, typename Hash = KmerHash>
@@ -82,6 +114,7 @@ struct KmerHashTable {
   value_type empty;
   value_type deleted;
   double load_factor;
+  size_t threshold_to_resize;
 
 
 // ---- iterator ----
@@ -167,10 +200,14 @@ struct KmerHashTable {
 
   void clear_table() {
     if (table != nullptr) {
+#ifdef USE_CUSTOM_HASH_ALLOCATOR
       //  delete[] table;
       // We cannot call delete because it was allocated with a c++ placement allocator
       table->~value_type(); // explicit destrictor
-      KmerHashAllocator::Deallocate(table, size_); // deallocate
+      KmerHashAllocator::Deallocate(table); // deallocate
+#else
+     delete[] table;
+#endif
       table = nullptr;
     }
     size_ = 0;
@@ -189,11 +226,17 @@ struct KmerHashTable {
   void init_table(size_t sz) {
     clear_table();
     size_ = rndup(sz);
+    threshold_to_resize = size_ * load_factor;
     //cerr << "init table of size " << size_ << endl;
     // A placement allocator with MMAP and huge TLB pages
+#ifdef USE_CUSTOM_HASH_ALLOCATOR
     void * ptr = KmerHashAllocator::Allocate(size_ * sizeof(value_type));
     table = new (ptr) value_type[size_];
+    // No need to zero init 
+#else
+    table = new value_type[size_];
     std::fill(table, table+size_, empty);
+#endif
   }
 
   iterator find(const Kmer& key) {
@@ -247,7 +290,7 @@ struct KmerHashTable {
 
   std::pair<iterator,bool> insert(const value_type& val) {
     //cerr << "inserting " << val.first.toString() << " = " << val.second << endl;
-    if (pop >= load_factor * size_) {
+    if (pop >= threshold_to_resize) {
       //cerr << "-- triggered resize--" << endl;
       reserve(2*size_);
     }
@@ -282,20 +325,31 @@ struct KmerHashTable {
 
 
     size_ = rndup(sz);
+    threshold_to_resize = size_ * load_factor;
     pop = 0;
 
+#ifdef USE_CUSTOM_HASH_ALLOCATOR
     // A placement allocator with MMAP and huge TLB pages
     void * ptr = KmerHashAllocator::Allocate(size_ * sizeof(value_type));
     table = new (ptr) value_type[size_];
+    // no need to init the table since MMAP gives zerored out pages
+#else
+    table = new value_type[size_];
     std::fill(table, table+size_, empty);
+#endif
     for (size_t i = 0; i < old_size_; i++) {
       if (old_table[i].first != empty.first && old_table[i].first != deleted.first) {
         insert(old_table[i]);
       }
     }
+
+#ifdef USE_CUSTOM_HASH_ALLOCATOR
     // We cannot call delete because it was allocated with a c++ placement allocator
-    table->~value_type(); // explicit destrictor
-    KmerHashAllocator::Deallocate(old_table, old_size_); // deallocate
+    old_table->~value_type(); // explicit destrictor
+    KmerHashAllocator::Deallocate(old_table); // deallocate
+#else
+    delete[] old_table;
+#endif
     old_table = nullptr;
   }
 
