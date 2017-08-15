@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-#define DEFAULT_HT_LOAD_FACTOR (0.8)
+// 94% derived from the original code (pop + pop>>4 > size_)
+#define DEFAULT_HT_LOAD_FACTOR (0.94117647058) 
 
 struct ProgramOptions {
   bool verbose;

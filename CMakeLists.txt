@@ -10,16 +10,16 @@ IF(CMAKE_BUILD_TYPE MATCHES Debug)
     message("debug mode")
 		add_compile_options(-O0 -g)
 ELSE(CMAKE_BUILD_TYPE MATCHES Debug)
-		add_compile_options(-O3 -g)
+		add_compile_options(-O3  -g)
 ENDIF(CMAKE_BUILD_TYPE MATCHES Debug)
 
 if(CMAKE_BUILD_TYPE MATCHES Profile)
 	add_compile_options(-g)
 endif(CMAKE_BUILD_TYPE MATCHES Profile)
 
-#link_libraries(numa)
-#add_definitions(-DUSE_CUSTOM_HASH_ALLOCATOR)
-#add_definitions(-DNUMA_INTERLEAVE)
+link_libraries(numa)
+add_definitions(-DUSE_CUSTOM_HASH_ALLOCATOR)
+add_definitions(-DNUMA_INTERLEAVE)
 
 
 

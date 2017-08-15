@@ -54,7 +54,7 @@ class KmerHashAllocator {
  
          p = mmap(0, sz, PROT_WRITE | PROT_READ, extra_flags[cur_flags_idx], 0, 0);
          if( p != MAP_FAILED) {
-             //printf("\n Allocated %lu at %p attempt %d\n", sz, p, cur_flags_idx);
+             // std::cerr << "[index] Allocated " << sz << " bytes at "<< p <<" attempt #"<<  cur_flags_idx << "\n";
              // remember thr real allocation size
              *(size_t*)p = sz;
              break;
@@ -315,7 +315,6 @@ struct KmerHashTable {
   }
 
   void reserve(size_t sz) {
-
     if (sz <= size_) {
       return;
     }
@@ -327,7 +326,6 @@ struct KmerHashTable {
     size_ = rndup(sz);
     threshold_to_resize = size_ * load_factor;
     pop = 0;
-
 #ifdef USE_CUSTOM_HASH_ALLOCATOR
     // A placement allocator with MMAP and huge TLB pages
     void * ptr = KmerHashAllocator::Allocate(size_ * sizeof(value_type));
@@ -337,6 +335,7 @@ struct KmerHashTable {
     table = new value_type[size_];
     std::fill(table, table+size_, empty);
 #endif
+
     for (size_t i = 0; i < old_size_; i++) {
       if (old_table[i].first != empty.first && old_table[i].first != deleted.first) {
         insert(old_table[i]);
