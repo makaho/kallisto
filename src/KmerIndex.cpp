@@ -861,24 +861,35 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   std::cerr << "[index] number of k-mers: " << pretty_num(kmap_size)
     << std::endl;
 
-  kmap.clear();
-  if (loadKmerTable) {
-    // Reserve the hash table so that it is slightly larger than  kmap_size/opt.ht_load_factor size
-    kmap.reserve(kmap_size  * 1.0 / opt.ht_load_factor + (1L<<10));
-  }
+  if (!opt.input_processed_index_filename.empty()) {
+      if (!loadKmerTable)
+          throw std::runtime_error("loadKmerTable must be true if input_processed_index_filename is given");
+      if (-1 == kmap.load_from_file(opt.input_processed_index_filename)) {
+          throw std::runtime_error("Failed to load from " + opt.input_processed_index_filename);
+          exit(-1);
+      }
+      // adjust index_map_offset
+      index_map_offset += kmap_size * (sizeof(Kmer) + sizeof(KmerEntry));
+  } else {
+      kmap.clear();
+      if (loadKmerTable) {
+        // Reserve the hash table so that it is slightly larger than  kmap_size/opt.ht_load_factor size
+        kmap.reserve(kmap_size  * 1.0 / opt.ht_load_factor + (1L<<10));
+      }
 
-  // 6. read kmer->ec values
-  Kmer tmp_kmer;
-  KmerEntry tmp_val;
-  for (size_t i = 0; i < kmap_size; ++i) {
-	tmp_kmer = *(Kmer*)(index_map + index_map_offset);
-	index_map_offset  += sizeof(tmp_kmer);
-	tmp_val = *(KmerEntry*)(index_map + index_map_offset);
-	index_map_offset  += sizeof(tmp_val);
+      // 6. read kmer->ec values
+      Kmer tmp_kmer;
+      KmerEntry tmp_val;
+      for (size_t i = 0; i < kmap_size; ++i) {
+        tmp_kmer = *(Kmer*)(index_map + index_map_offset);
+        index_map_offset  += sizeof(tmp_kmer);
+        tmp_val = *(KmerEntry*)(index_map + index_map_offset);
+        index_map_offset  += sizeof(tmp_val);
 
-    if (loadKmerTable) {
-      kmap.insert({tmp_kmer, tmp_val});
-    }
+        if (loadKmerTable) {
+          kmap.insert({tmp_kmer, tmp_val});
+        }
+      }
   }
 
   // 7. read number of equivalence classes
@@ -985,6 +996,15 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   std::cout << "[index] " << (after - before) / 1000000.0 << " seconds for loading index." << std::endl;
  }
 
+bool KmerIndex::write_to_file(std::string file) {
+    // Currently only serializing the Kmap
+    return kmap.write_to_file(file);
+}
+
+bool KmerIndex::load_from_file(std::string file){
+    // Currently only serializing the Kmap
+    kmap.load_from_file(file);
+}
 
 int KmerIndex::mapPair(const char *s1, int l1, const char *s2, int l2, int ec) const {
   bool d1 = true;

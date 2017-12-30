@@ -140,7 +140,8 @@ struct KmerIndex {
   std::vector<std::string> target_names_;
   std::vector<std::string> target_seqs_; // populated on demand
   bool target_seqs_loaded;
-
+  bool write_to_file(std::string file);
+  bool load_from_file(std::string file);
 
 };
 

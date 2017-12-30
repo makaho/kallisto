@@ -13,6 +13,8 @@ struct ProgramOptions {
   bool verbose;
   int threads;
   std::string index;
+  std::string input_processed_index_filename;
+  std::string output_processed_index_filename;
   int k;
   int iterations;
   std::string output;

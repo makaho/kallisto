@@ -6,12 +6,15 @@
 #include <iterator>
 #include <sys/mman.h>
 #include <numa.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include "common.h"
 
 /*#include <iostream> // debug
 	using namespace std;*/
-
+using namespace std;
 #ifndef MAP_HUGE_1GB
 #define MAP_HUGE_1GB (30 << MAP_HUGE_SHIFT)
 #endif
@@ -20,48 +23,66 @@
 #define MAP_HUGE_2MB ((21 << MAP_HUGE_SHIFT))
 #endif
 
+union MapMetadata {
+    struct {
+        size_t allocSz;
+        size_t serPop;
+        size_t serSize;
+        int fd;
+    };
+    char dummy[128];
+};
+
+#define MAPDATA_TO_TABLE(_p) ((void *)((size_t)_p + sizeof(MapMetadata)))
+#define TABLE_TO_MAPDATA(_p) ((MapMetadata*)((size_t)_p - sizeof(MapMetadata)))
+
 // Not thread safe
 class KmerHashAllocator {
   private:
-  static size_t Roundup(size_t sz, size_t page_sz){
+  size_t Roundup(size_t sz, size_t page_sz){
     if (sz & (page_sz-1))
         return (sz & ~(page_sz-1)) + page_sz;
     return sz;
   }
-  public:
-  static void * Allocate(size_t sz) {
-     int flags =  MAP_PRIVATE | MAP_ANONYMOUS;
-     int extra_flags[4] = {flags | MAP_HUGETLB | MAP_HUGE_1GB,
-                           flags | MAP_HUGETLB | MAP_HUGE_2MB, 
-                           flags | MAP_HUGETLB, 
-                           flags};
-     void * p=MAP_FAILED;
-
-     size_t  default_page_size = sysconf(_SC_PAGESIZE);
-
-     size_t  page_sz[4] = {1<<30,
-                       1<<21,
-                       default_page_size,
-                       default_page_size};
- 
-
-     // we hide the size behind the real pointer to use it during deallocation
-     sz = sz + sizeof(size_t);
-     int cur_flags_idx = 0;
-     while (cur_flags_idx < 4) {
-         // Round to the nearest page size
-         sz = Roundup(sz, page_sz[cur_flags_idx]);
- 
-         p = mmap(0, sz, PROT_WRITE | PROT_READ, extra_flags[cur_flags_idx], 0, 0);
-         if( p != MAP_FAILED) {
-             // std::cerr << "[index] Allocated " << sz << " bytes at "<< p <<" attempt #"<<  cur_flags_idx << "\n";
-             // remember thr real allocation size
-             *(size_t*)p = sz;
-             break;
-         }
-         cur_flags_idx ++;
-     }
     
+    void * AllocWithHugePage(int flags, const size_t sz, const int protection, const int fd, const bool updateMetadata=true){
+        int extra_flags[4] = {flags | MAP_HUGETLB | MAP_HUGE_1GB,
+            flags | MAP_HUGETLB | MAP_HUGE_2MB,
+            flags | MAP_HUGETLB,
+            flags};
+        void * p=MAP_FAILED;
+        size_t  default_page_size = sysconf(_SC_PAGESIZE);
+        size_t  page_sz[4] = {1<<30,
+            1<<21,
+            default_page_size,
+            default_page_size};
+        int cur_flags_idx = 0;
+        while (cur_flags_idx < 4) {
+            // Round to the nearest page size
+            size_t realSz = Roundup(sz, page_sz[cur_flags_idx]);
+            
+            p = mmap(0, realSz, protection, extra_flags[cur_flags_idx], fd, 0);
+            if( p != MAP_FAILED) {
+                std::cerr << "[index] Allocated " << realSz << " bytes at "<< p <<" attempt #"<<  cur_flags_idx << "\n";
+                // remember thr real allocation size
+                if (updateMetadata == true) {
+                    MapMetadata* metaData = (MapMetadata*)p;
+                    metaData->allocSz = realSz;
+                    metaData->fd = fd;
+                }
+                break;
+            }
+            cur_flags_idx ++;
+        }
+        return p;
+    }
+  public:
+  void * Allocate(size_t sz) {
+     int flags =  MAP_PRIVATE | MAP_ANONYMOUS;
+     int protection = PROT_WRITE | PROT_READ;
+     // we hide the size behind the real pointer to use it during deallocation
+     sz = sz + sizeof(MapMetadata);
+     void * p = AllocWithHugePage(flags, sz, protection, 0 /*fd*/);
      if (p == MAP_FAILED) {
          // could not allocate the required memory!
          std::cerr << "Error! Failed to mmap() \n";
@@ -83,21 +104,105 @@ class KmerHashAllocator {
         }
      }
 #endif
-     p = (void *)((size_t)p + sizeof(size_t));
-     return p;
+     return MAPDATA_TO_TABLE(p);
  }
 
-  static void Deallocate(void * p){
-      // The real pointer is size_t behind p.
-      p = (void*)((size_t)p - sizeof(size_t));
-      // the real size is stored one behind
-      size_t sz = * (size_t*) p;
-      //printf("\nDeallocated  %lu at %p \n", sz, p);
-      if (munmap(p, sz) != 0 ) {
+  void Deallocate(void * p){
+      // Metadata is behind p.
+      MapMetadata * metaData = TABLE_TO_MAPDATA(p);
+      if (munmap(metaData, metaData->allocSz) != 0 ) {
           std::cerr << "Error! Failed to munmap() \n";
           exit(-1);
       }
   }
+
+    bool Serialize(void * p, string file, size_t __size, size_t __pop){
+        // Interleave the allocation
+#ifdef NUMA_INTERLEAVE
+        // interleave memory on all NUMA nodes, if possible
+        if(numa_available() != -1) {
+            struct bitmask * mem_nodes = numa_get_mems_allowed();
+            numa_set_interleave_mask(mem_nodes);
+        }
+#endif
+        int fd = open(file.c_str(), O_CREAT|O_TRUNC|O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+        if (fd == -1) {
+            perror("open");
+            return false;
+        }
+        // Metadata is behind p.
+        MapMetadata * metaData = TABLE_TO_MAPDATA(p);
+        metaData->serSize = __size;
+        metaData->serPop = __pop;
+        int ret = ftruncate(fd, metaData->allocSz);
+        if (ret == -1) {
+            perror("ftruncate");
+            return false;
+        }
+        
+        int flags =  MAP_SHARED;
+        int protection = PROT_WRITE | PROT_READ;
+        void * fileBackedData = AllocWithHugePage(flags, metaData->allocSz, protection, fd);
+        if (fileBackedData == MAP_FAILED) {
+            // could not allocate the required memory!
+            std::cerr << "Error! Failed to mmap() \n";
+            return false;
+        }
+        
+        memcpy(fileBackedData, metaData, metaData->allocSz);
+        if (close(fd) == -1) {
+            perror("close");
+            return false;
+        }
+        if (munmap(fileBackedData, metaData->allocSz) != 0 ) {
+            std::cerr << "Error! Failed to munmap() \n";
+            exit(-1);
+        }
+        return true;
+    }
+    
+    void * Deserialize(string file, size_t & ref_size, size_t & ref_pop){
+        int fd = open(file.c_str(), O_RDONLY);
+        if (fd == -1) {
+            perror("open");
+            return 0;
+        }
+        
+        // get file size
+        struct stat stFileInfo;
+        auto intStat = stat(file.c_str(), &stFileInfo);
+        if (intStat != 0) {
+            throw std::runtime_error ("Cannot stat" + file);
+        }
+        size_t sz = stFileInfo.st_size;
+        
+        int flags =  MAP_SHARED;
+        int protection = PROT_READ;
+        void * fileBackedData = AllocWithHugePage(flags, sz, protection, fd, false /*updateMetadata*/);
+        if (fileBackedData == MAP_FAILED) {
+            // could not allocate the required memory!
+            throw std::runtime_error ("Cannot memory map" + file);
+        }
+        // Close immediately.
+        // ref: http://pubs.opengroup.org/onlinepubs/7908799/xsh/mmap.html
+        // The mmap() function adds an extra reference to the file associated
+        // with the file descriptor fildes which is not removed by a subsequent close()
+        // on that file descriptor. This reference is removed when there are no more mappings to the file.
+        if (close(fd) == -1) {
+            perror("close");
+            // silently continue
+        }
+        
+        // sanity check
+        MapMetadata * metaData = (MapMetadata*)(fileBackedData);
+        if(metaData->allocSz != sz) {
+            throw std::runtime_error ("Something went wrong between serialization and deserialization of " + file);
+        }
+        
+        ref_size = metaData->serSize;
+        ref_pop =  metaData->serPop;
+        return MAPDATA_TO_TABLE(fileBackedData);
+    }
 };
 
 
@@ -115,6 +220,7 @@ struct KmerHashTable {
   value_type deleted;
   double load_factor;
   size_t threshold_to_resize;
+  KmerHashAllocator hashAllocator;
 
 
 // ---- iterator ----
@@ -194,6 +300,12 @@ struct KmerHashTable {
     init_table((size_t) (sz*1.0/ht_load_factor + (1L<<20)));
   }
 
+    KmerHashTable(string file, const Hash& h = Hash()) : hasher(h), table(nullptr), size_(0), pop(0)  {
+        empty.first.set_empty();
+        deleted.first.set_deleted();
+        hashAllocator.Deserialize(file, size_, pop);
+    }
+
   ~KmerHashTable() {
     clear_table();
   }
@@ -203,8 +315,8 @@ struct KmerHashTable {
 #ifdef USE_CUSTOM_HASH_ALLOCATOR
       //  delete[] table;
       // We cannot call delete because it was allocated with a c++ placement allocator
-      table->~value_type(); // explicit destrictor
-      KmerHashAllocator::Deallocate(table); // deallocate
+      table->~value_type(); // explicit destrctor
+      hashAllocator.Deallocate(table); // deallocate
 #else
      delete[] table;
 #endif
@@ -230,7 +342,7 @@ struct KmerHashTable {
     //cerr << "init table of size " << size_ << endl;
     // A placement allocator with MMAP and huge TLB pages
 #ifdef USE_CUSTOM_HASH_ALLOCATOR
-    void * ptr = KmerHashAllocator::Allocate(size_ * sizeof(value_type));
+    void * ptr = hashAllocator.Allocate(size_ * sizeof(value_type));
     table = new (ptr) value_type[size_];
     // No need to zero init 
 #else
@@ -328,7 +440,7 @@ struct KmerHashTable {
     pop = 0;
 #ifdef USE_CUSTOM_HASH_ALLOCATOR
     // A placement allocator with MMAP and huge TLB pages
-    void * ptr = KmerHashAllocator::Allocate(size_ * sizeof(value_type));
+    void * ptr = hashAllocator.Allocate(size_ * sizeof(value_type));
     table = new (ptr) value_type[size_];
     // no need to init the table since MMAP gives zerored out pages
 #else
@@ -345,7 +457,7 @@ struct KmerHashTable {
 #ifdef USE_CUSTOM_HASH_ALLOCATOR
     // We cannot call delete because it was allocated with a c++ placement allocator
     old_table->~value_type(); // explicit destrictor
-    KmerHashAllocator::Deallocate(old_table); // deallocate
+    hashAllocator.Deallocate(old_table); // deallocate
 #else
     delete[] old_table;
 #endif
@@ -384,9 +496,16 @@ struct KmerHashTable {
     return const_iterator(this);
   }
 
-
-
-
+  // -- serialization
+  bool write_to_file(string file) {
+      return hashAllocator.Serialize(table, file, size_, pop);
+  }
+    
+  bool load_from_file(string file) {
+    clear_table();
+    table = (value_type*) hashAllocator.Deserialize(file, size_, pop);
+    return true;
+  }
 
 };
 

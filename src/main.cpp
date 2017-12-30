@@ -364,6 +364,61 @@ void ParseOptionsEMOnly(int argc, char **argv, ProgramOptions& opt) {
   }
 }
 
+void ParseOptionsIndexLoad(int argc, char **argv, ProgramOptions& opt) {
+    int verbose_flag = 0;
+    const char *opt_string = "z:t:i:m:";
+
+    static struct option long_options[] = {
+        // long args
+        {"verbose", no_argument, &verbose_flag, 1},
+        {"threads", required_argument, 0, 't'},
+        {"index", required_argument, 0, 'i'},
+        // load factor on the hash table
+        {"ht-load-factor", required_argument, 0, 'z'},
+        {"output_processed_index_filename", required_argument, 0, 'm' },
+        {0,0,0,0}
+    };
+    int c;
+    int option_index = 0;
+    while (true) {
+        c = getopt_long(argc,argv,opt_string, long_options, &option_index);
+        
+        if (c == -1) {
+            break;
+        }
+        
+        switch (c) {
+            case 0:
+                break;
+            case 't': {
+                stringstream(optarg) >> opt.threads;
+                break;
+            }
+            case 'i': {
+                opt.index = optarg;
+                break;
+            }
+            case 'm': {
+                opt.output_processed_index_filename = optarg;
+                break;
+            }
+            case 'z':{
+                stringstream(optarg) >> opt.ht_load_factor;
+                if (opt.ht_load_factor <= 0 || opt.ht_load_factor >= 1.0) {
+                    cerr << "Warning: invalid ht-load-factor " << opt.ht_load_factor << ", use values greater than 0.0 less than 1.0, defaulting to:" << DEFAULT_HT_LOAD_FACTOR << endl;
+                    opt.ht_load_factor = DEFAULT_HT_LOAD_FACTOR;
+                }
+                break;
+            }
+            default: break;
+        }
+    }
+    if (verbose_flag) {
+        opt.verbose = true;
+    }
+}
+
+
 void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int verbose_flag = 0;
   int single_flag = 0;
@@ -371,7 +426,7 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
   int pbam_flag = 0;
   int umi_flag = 0;
 
-  const char *opt_string = "z:t:i:l:s:o:b:p:";
+  const char *opt_string = "z:t:i:l:s:o:b:p:m:";
   static struct option long_options[] = {
     // long args
     {"verbose", no_argument, &verbose_flag, 1},
@@ -389,7 +444,8 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
     // load factor on the hash table
     {"ht-load-factor", required_argument, 0, 'z'},
 	{ "output_filename_prefix", required_argument, 0, 'p' },
-	{0,0,0,0}
+    {"input_processed_index_filename", required_argument, 0, 'm' },
+    {0,0,0,0}
   };
   int c;
   int option_index = 0;
@@ -427,6 +483,11 @@ void ParseOptionsPseudo(int argc, char **argv, ProgramOptions& opt) {
 		opt.output_filename_prefix = optarg;
 		break;
 	}
+    case 'm': {
+        opt.input_processed_index_filename = optarg;
+        break;
+    }
+
 	case 'b': {
       opt.batch_mode = true;
       opt.batch_file_name = optarg;
@@ -826,8 +887,42 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
   return ret;
 }
 
+bool CheckOptionsIndexLoad(ProgramOptions& opt) {
+    bool ret = true;
+    cerr << endl;
+    // check for index
+    if (opt.index.empty()) {
+        cerr << ERROR_STR << " kallisto index file missing" << endl;
+        ret = false;
+    } else {
+        struct stat stFileInfo;
+        auto intStat = stat(opt.index.c_str(), &stFileInfo);
+        if (intStat != 0) {
+            cerr << ERROR_STR << " kallisto index file not found " << opt.index << endl;
+            ret = false;
+        }
+    }
+    
+    if (opt.output_processed_index_filename.empty()) {
+        cerr << ERROR_STR << " kallisto output_processed_index_filename missing" << endl;
+        ret = false;
+    }
+    
+    if (opt.threads <= 0) {
+        cerr << "Error: invalid number of threads " << opt.threads << endl;
+        ret = false;
+    } else {
+        unsigned int n = std::thread::hardware_concurrency();
+        if (n != 0 && n < opt.threads) {
+            cerr << "[~warn]  you asked for " << opt.threads
+            << ", but only " << n << " cores on the machine" << endl;
+        }
+    }
+    
+    return ret;
 
-
+    
+}
 bool CheckOptionsPseudo(ProgramOptions& opt) {
 
   bool ret = true;
@@ -939,7 +1034,18 @@ bool CheckOptionsPseudo(ProgramOptions& opt) {
       ret = false;
     }
   }
-  
+    
+    if (!opt.input_processed_index_filename.empty()) {
+        struct stat stFileInfo;
+        auto intStat = stat(opt.input_processed_index_filename.c_str(), &stFileInfo);
+        if (intStat != 0) {
+            cerr << ERROR_STR << " kallisto input_processed_index_filename not found " << opt.input_processed_index_filename << endl;
+            ret = false;
+        } else {
+            cerr << "[~warn] overriding all Kmer index configurations with preprocessed settings from:" << opt.input_processed_index_filename << endl;
+        }
+    }
+
   if (opt.umi) {
     opt.single_end = true;
     if (opt.fld != 0.0 || opt.sd != 0.0) {
@@ -1373,6 +1479,23 @@ void usageEM(bool valid_input = true) {
 
 }
 
+void usageIndexLoad(bool valid_input = true) {
+    if (valid_input) {
+        cout << "kallisto " << KALLISTO_VERSION << endl
+        << "Computes equivalence classes for reads and quantifies abundances" << endl << endl;
+    }
+    
+    cout << "Usage: kallisto index_load [arguments] <-i index file> <-m output file>" << endl << endl
+    << "Required arguments:" << endl
+    << "-i, --index=STRING            Filename for the kallisto index to be used for" << endl
+    << "                              pseudoalignment" << endl
+    << "-m, --output_processed_index_filename=STRING    Output file in TMPFS to store processed index" << endl << endl
+    << "Optional arguments:" << endl
+    << "-t, --threads=INT             Number of threads to use (default: 1)" << endl;
+    
+}
+
+
 void usagePseudo(bool valid_input = true) {
   if (valid_input) {
     cout << "kallisto " << KALLISTO_VERSION << endl
@@ -1382,7 +1505,7 @@ void usagePseudo(bool valid_input = true) {
   cout << "Usage: kallisto pseudo [arguments] FASTQ-files" << endl << endl
        << "Required arguments:" << endl
        << "-i, --index=STRING            Filename for the kallisto index to be used for" << endl
-       << "                              pseudoalignment" << endl
+       << "-m, --input_processed_index_filename=STRING    Input file in TMPFS to use for processed index" << endl << endl
        << "-o, --output-dir=STRING       Directory to write output to" << endl << endl
        << "Optional arguments:" << endl
        << "-u  --umi                     First file in pair is a UMI file" << endl
@@ -1751,7 +1874,25 @@ int main(int argc, char *argv[]) {
         }
         cerr << endl;
       }
-    } else if (cmd == "pseudo") {
+    }else if (cmd == "index_load") {
+        if (argc==2) {
+            usageIndexLoad();
+            return 0;
+        }
+        ParseOptionsIndexLoad(argc-1,argv+1,opt);
+        if (!CheckOptionsIndexLoad(opt)) {
+            cerr << endl;
+            usageIndexLoad(false);
+            exit(1);
+        }
+        // pseudoalign the reads
+        KmerIndex index(opt);
+        index.load(opt);
+        if (false == index.write_to_file(opt.output_processed_index_filename)) {
+            std::cerr << "[index_load] Failed to serialize to " << opt.output_processed_index_filename << std::endl;
+            exit(1);
+        }
+    }else if (cmd == "pseudo") {
       if (argc==2) {
         usagePseudo();
         return 0;
