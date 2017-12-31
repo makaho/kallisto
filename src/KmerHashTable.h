@@ -97,10 +97,11 @@ class KmerHashAllocator {
           For interleave policy to be effective on huge page mappings the policied memory needs to be tens of megabytes or larger.
           If the allocated size is tiny, i.e., < 128 MB, do not bother interleaving. Instead take advantage of the caching on a processor.
         */
+        size_t realsz = ((MapMetadata*)(p))->allocSz;
         if( sz >= (1L<<27)) {
             // We call numa_get_mems_allowed() each time to get the possibly changing list
             struct bitmask * mem_nodes = numa_get_mems_allowed();
-            numa_interleave_memory(p, sz, mem_nodes);
+            numa_interleave_memory(p, realsz, mem_nodes);
         }
      }
 #endif
