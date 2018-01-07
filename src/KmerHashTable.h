@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
 #include "common.h"
 
 /*#include <iostream> // debug
@@ -97,10 +98,11 @@ class KmerHashAllocator {
           For interleave policy to be effective on huge page mappings the policied memory needs to be tens of megabytes or larger.
           If the allocated size is tiny, i.e., < 128 MB, do not bother interleaving. Instead take advantage of the caching on a processor.
         */
+	size_t realsz = ((MapMetadata*)(p))->allocSz;
         if( sz >= (1L<<27)) {
             // We call numa_get_mems_allowed() each time to get the possibly changing list
             struct bitmask * mem_nodes = numa_get_mems_allowed();
-            numa_interleave_memory(p, sz, mem_nodes);
+            numa_interleave_memory(p, realsz, mem_nodes);
         }
      }
 #endif
@@ -116,93 +118,134 @@ class KmerHashAllocator {
       }
   }
 
-    bool Serialize(void * p, string file, size_t __size, size_t __pop){
-        // Interleave the allocation
+  void WarnHugeTLB(const string &file) {
+	  char path[2*PATH_MAX];
+	  char canonicalPath[2*PATH_MAX];
+	  char * saveptr;
+	  char * mountpt;
+	  const char * delim(" ");
+	  /* Open the command for reading. */
+	  FILE * fp = popen("mount -t hugetlbfs", "r");
+	  if (fp == NULL) 
+		  goto ErrRet;
+	  // output: hugetlbfs on /dev/hugepages type hugetlbfs (rw,relatime)
+	  if ( NULL == fgets(path, 10*PATH_MAX-1, fp)) {
+		  goto ErrRet;
+	  }
+	  pclose(fp);
+	  fp = NULL;
+	  if (0 == strtok_r(path, delim, &saveptr))
+		  goto ErrRet;
+	  if ( 0 == strtok_r(NULL, delim, &saveptr))
+		  goto ErrRet;
+	  if ( (mountpt=strtok_r(NULL, delim, &saveptr)) == 0 )
+		  goto ErrRet;
+	  if (NULL == realpath(mountpt, canonicalPath))
+		  goto ErrRet;
+	  if (NULL == strstr(file.c_str(), canonicalPath))
+		  std::cerr << "[Warn]" << file << " does not seem to be on hugetlbfs. It can severly affect performance" << endl;
+	  return;
+ErrRet:
+	  if (fp)
+		  pclose(fp);
+	  std::cerr << "[Warn] Could not verify if " << file << " is on hugetlbfs" << endl;
+  }
+
+  bool Serialize(void * p, string file, size_t __size, size_t __pop){
+	  WarnHugeTLB(file);
+	  // Interleave the allocation
 #ifdef NUMA_INTERLEAVE
-        // interleave memory on all NUMA nodes, if possible
-        if(numa_available() != -1) {
-            struct bitmask * mem_nodes = numa_get_mems_allowed();
-            numa_set_interleave_mask(mem_nodes);
-        }
+	  // interleave memory on all NUMA nodes, if possible
+	  if(numa_available() != -1) {
+		  struct bitmask * mem_nodes = numa_get_mems_allowed();
+		  numa_set_interleave_mask(mem_nodes);
+	  }
 #endif
-        int fd = open(file.c_str(), O_CREAT|O_TRUNC|O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
-        if (fd == -1) {
-            perror("open");
-            return false;
-        }
-        // Metadata is behind p.
-        MapMetadata * metaData = TABLE_TO_MAPDATA(p);
-        metaData->serSize = __size;
-        metaData->serPop = __pop;
-        int ret = ftruncate(fd, metaData->allocSz);
-        if (ret == -1) {
-            perror("ftruncate");
-            return false;
-        }
-        
-        int flags =  MAP_SHARED;
-        int protection = PROT_WRITE | PROT_READ;
-        void * fileBackedData = AllocWithHugePage(flags, metaData->allocSz, protection, fd);
-        if (fileBackedData == MAP_FAILED) {
-            // could not allocate the required memory!
-            std::cerr << "Error! Failed to mmap() \n";
-            return false;
-        }
-        
-        memcpy(fileBackedData, metaData, metaData->allocSz);
-        if (close(fd) == -1) {
-            perror("close");
-            return false;
-        }
-        if (munmap(fileBackedData, metaData->allocSz) != 0 ) {
-            std::cerr << "Error! Failed to munmap() \n";
-            exit(-1);
-        }
-        return true;
-    }
-    
-    void * Deserialize(string file, size_t & ref_size, size_t & ref_pop){
-        int fd = open(file.c_str(), O_RDONLY);
-        if (fd == -1) {
-            perror("open");
-            return 0;
-        }
-        
-        // get file size
-        struct stat stFileInfo;
-        auto intStat = stat(file.c_str(), &stFileInfo);
-        if (intStat != 0) {
-            throw std::runtime_error ("Cannot stat" + file);
-        }
-        size_t sz = stFileInfo.st_size;
-        
-        int flags =  MAP_SHARED;
-        int protection = PROT_READ;
-        void * fileBackedData = AllocWithHugePage(flags, sz, protection, fd, false /*updateMetadata*/);
-        if (fileBackedData == MAP_FAILED) {
-            // could not allocate the required memory!
-            throw std::runtime_error ("Cannot memory map" + file);
-        }
-        // Close immediately.
-        // ref: http://pubs.opengroup.org/onlinepubs/7908799/xsh/mmap.html
-        // The mmap() function adds an extra reference to the file associated
-        // with the file descriptor fildes which is not removed by a subsequent close()
-        // on that file descriptor. This reference is removed when there are no more mappings to the file.
-        if (close(fd) == -1) {
-            perror("close");
-            // silently continue
-        }
-        
-        // sanity check
-        MapMetadata * metaData = (MapMetadata*)(fileBackedData);
-        if(metaData->allocSz != sz) {
-            throw std::runtime_error ("Something went wrong between serialization and deserialization of " + file);
-        }
-        
-        ref_size = metaData->serSize;
-        ref_pop =  metaData->serPop;
-        return MAPDATA_TO_TABLE(fileBackedData);
-    }
+	  int fd = open(file.c_str(), O_CREAT|O_TRUNC|O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+	  if (fd == -1) {
+		  perror("open");
+		  return false;
+	  }
+	  // Metadata is behind p.
+	  MapMetadata * metaData = TABLE_TO_MAPDATA(p);
+	  metaData->serSize = __size;
+	  metaData->serPop = __pop;
+	  int ret = ftruncate(fd, metaData->allocSz);
+	  if (ret == -1) {
+		  perror("ftruncate");
+		  return false;
+	  }
+
+	  int flags =  MAP_SHARED;
+	  int protection = PROT_WRITE | PROT_READ;
+	  void * fileBackedData = AllocWithHugePage(flags, metaData->allocSz, protection, fd);
+	  if (fileBackedData == MAP_FAILED) {
+		  // could not allocate the required memory!
+		  std::cerr << "Error! Failed to mmap() \n";
+		  return false;
+	  }
+	  MapMetadata * fileBackedMetaData = (MapMetadata*)(fileBackedData);
+	  size_t serializedAllocSz = fileBackedMetaData->allocSz;	
+	  // sanity check that fileBackedMetaData->allocSz >= metaData->allocSz
+	  assert (serializedAllocSz >= metaData->allocSz);
+	  memcpy(fileBackedData, metaData, metaData->allocSz);
+	  // memcpy overwrites fileBackedMetaData->allocSz, hence reset it
+	  fileBackedMetaData->allocSz = serializedAllocSz;
+	  if (close(fd) == -1) {
+		  perror("close");
+		  return false;
+	  }
+	  // This guarantees that all data is written back.
+	  if (munmap(fileBackedData, metaData->allocSz) != 0 ) {
+		  std::cerr << "Error! Failed to munmap() \n";
+		  exit(-1);
+	  }
+	  return true;
+  }
+
+  void * Deserialize(string file, size_t & ref_size, size_t & ref_pop){
+	  WarnHugeTLB(file);
+	  int fd = open(file.c_str(), O_RDONLY);
+	  if (fd == -1) {
+		  perror("open");
+		  return 0;
+	  }
+
+	  // get file size
+	  struct stat stFileInfo;
+	  auto intStat = stat(file.c_str(), &stFileInfo);
+	  if (intStat != 0) {
+		  throw std::runtime_error ("Cannot stat" + file);
+	  }
+	  size_t sz = stFileInfo.st_size;
+
+	  int flags =  MAP_SHARED;
+	  int protection = PROT_READ;
+	  void * fileBackedData = AllocWithHugePage(flags, sz, protection, fd, false /*updateMetadata*/);
+	  if (fileBackedData == MAP_FAILED) {
+		  // could not allocate the required memory!
+		  throw std::runtime_error ("Cannot memory map" + file);
+	  }
+	  // Close immediately.
+	  // ref: http://pubs.opengroup.org/onlinepubs/7908799/xsh/mmap.html
+	  // The mmap() function adds an extra reference to the file associated
+	  // with the file descriptor fildes which is not removed by a subsequent close()
+	  // on that file descriptor. This reference is removed when there are no more mappings to the file.
+	  if (close(fd) == -1) {
+		  perror("close");
+		  // silently continue
+	  }
+
+	  // sanity check
+	  MapMetadata * metaData = (MapMetadata*)(fileBackedData);
+	  if(metaData->allocSz != sz) {
+		  throw std::runtime_error ("Something went wrong between serialization and deserialization of " + file);
+	  }
+
+	  ref_size = metaData->serSize;
+	  ref_pop =  metaData->serPop;
+	  return MAPDATA_TO_TABLE(fileBackedData);
+  }
 };
 
 
