@@ -5,7 +5,7 @@
 #include <vector>
 #include <sys/stat.h>
 #include <getopt.h>
- #include <thread>
+#include <thread>
 #include <time.h>
 
 #include <cstdio>
@@ -1952,6 +1952,110 @@ int main(int argc, char *argv[]) {
         cerr << endl;
       }
 	}
+	else if (cmd == "mdc-quant") {
+		if (argc == 2) {
+			usagePseudo();
+			return 0;
+		}
+		ParseOptionsPseudo(argc - 1, argv + 1, opt);
+		if (!CheckOptionsPseudo(opt)) {
+			cerr << endl;
+			usagePseudo(false);
+			exit(1);
+		}
+		else {
+			clock_t beforec, afterc;
+			time_t beforet, aftert;
+			// pseudoalign the reads
+			KmerIndex index(opt);
+			index.load(opt);
+
+			MinCollector collection(index, opt);
+			int num_processed = 0;
+
+			if (!opt.batch_mode) {
+				beforec = clock();
+				beforet = time(NULL);
+				num_processed = ProcessReads(index, opt, collection);
+				aftert = time(NULL);
+				afterc = clock();
+				std::cout << "clock time: " << (afterc - beforec) / CLOCKS_PER_SEC << std::endl;
+				std::cout << "wall time: " << (aftert - beforet) << std::endl;
+				collection.write((opt.output + "/" + opt.output_filename_prefix + "old_pseudoalignments"));
+			}
+			else {
+
+				std::vector<std::vector<int>> batchCounts;
+				num_processed = ProcessBatchReads(index, opt, collection, batchCounts);
+				/*
+				for (int i = 0; i < opt.batch_ids.size(); i++) {
+				std::fill(collection.counts.begin(), collection.counts.end(),0);
+				opt.files = opt.batch_files[i];
+				num_processed += ProcessReads(index, opt, collection);
+				batchCounts.push_back(collection.counts);
+				}
+				*/
+
+				writeBatchMatrix((opt.output + "/" + opt.output_filename_prefix + "matrix"), index, opt.batch_ids, batchCounts);
+			}
+
+			// if mean FL not provided, estimate
+			std::vector<int> fld;
+			if (opt.fld == 0.0) {
+				fld = collection.flens; // copy
+				collection.compute_mean_frag_lens_trunc();
+			}
+			else {
+				auto mean_fl = (opt.fld > 0.0) ? opt.fld : collection.get_mean_frag_len();
+				auto sd_fl = opt.sd;
+				collection.init_mean_fl_trunc(mean_fl, sd_fl);
+				//fld.resize(MAX_FRAG_LEN,0); // no obersvations
+				fld = trunc_gaussian_counts(0, MAX_FRAG_LEN, mean_fl, sd_fl, 10000);
+
+				// for (size_t i = 0; i < collection.mean_fl_trunc.size(); ++i) {
+				//   cout << "--- " << i << '\t' << collection.mean_fl_trunc[i] << endl;
+				// }
+			}
+
+			std::vector<int> preBias(4096, 1);
+			if (opt.bias) {
+				preBias = collection.bias5; // copy
+			}
+
+			auto fl_means = get_frag_len_means(index.target_lens_, collection.mean_fl_trunc);
+
+			/*for (int i = 0; i < collection.bias3.size(); i++) {
+			std::cout << i << "\t" << collection.bias3[i] << "\t" << collection.bias5[i] << "\n";
+			}*/
+
+			EMAlgorithm em(collection.counts, index, collection, fl_means, opt);
+			em.run(10000, 50, true, opt.bias);
+
+			std::string call = argv_to_string(argc, argv);
+
+			H5Writer writer;
+			if (!opt.plaintext) {
+				writer.init(opt.output + "/" + opt.output_filename_prefix + "abundance.h5", opt.bootstrap, num_processed, fld, preBias, em.post_bias_, 6,
+					index.INDEX_VERSION, call, start_time);
+				writer.write_main(em, index.target_names_, index.target_lens_);
+			}
+
+			plaintext_aux(
+				opt.output + "/" + opt.output_filename_prefix + "run_info.json",
+				std::string(std::to_string(index.num_trans)),
+				std::string(std::to_string(opt.bootstrap)),
+				std::string(std::to_string(num_processed)),
+				KALLISTO_VERSION,
+				std::string(std::to_string(index.INDEX_VERSION)),
+				start_time,
+				call);
+
+			plaintext_writer(opt.output + "/" + opt.output_filename_prefix + "abundance.tsv", em.target_names_,
+				em.alpha_, em.eff_lens_, index.target_lens_);
+
+			cerr << endl;
+		}
+	}	
 	else if (cmd == "singlecell") {
 		if (argc == 2) {
 			usageSinglecell();
