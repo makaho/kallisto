@@ -10,8 +10,18 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <limits.h>
 #include "common.h"
+
+#define PROFILE_CLASH
+
+#ifdef PROFILE_CLASH
+	extern uint64_t gLoop;	
+	extern uint64_t gMaxLoop;
+	extern uint64_t gInvoke;
+#endif
+ 
 
 /*#include <iostream> // debug
 	using namespace std;*/
@@ -396,12 +406,30 @@ struct KmerHashTable {
 
   iterator find(const Kmer& key) {
     size_t h = hasher(key) & (size_-1);
+#ifdef PROFILE_CLASH
+    	int loopTrip = 0;
+	gInvoke++;
+#endif
+
 
     for (;; h =  (h+1!=size_ ? h+1 : 0)) {
+#ifdef PROFILE_CLASH
+	loopTrip++;	
+#endif
       if (table[h].first == empty.first) {
+#ifdef PROFILE_CLASH
+	gLoop += loopTrip;	
+	if (loopTrip > gMaxLoop)
+		gMaxLoop = loopTrip;
+#endif
         // empty slot, not in table
         return iterator(this);
       } else if (table[h].first == key) {
+#ifdef PROFILE_CLASH
+	gLoop += loopTrip;	
+	if (loopTrip > gMaxLoop)
+		gMaxLoop = loopTrip;
+#endif
         // same key, found
         return iterator(this, h);
       } // if it is deleted, we still have to continue
@@ -411,12 +439,33 @@ struct KmerHashTable {
   const_iterator find(const Kmer& key) const {
 
     size_t h = hasher(key) & (size_-1);
+#ifdef PROFILE_CLASH
+    	int loopTrip = 0;
+	gInvoke++;
+#endif
+
 
     for (;; h =  (h+1!=size_ ? h+1 : 0)) {
+#ifdef PROFILE_CLASH
+	loopTrip++;	
+#endif
+ 
       if (table[h].first == empty.first) {
+#ifdef PROFILE_CLASH
+	gLoop += loopTrip;	
+	if (loopTrip > gMaxLoop)
+		gMaxLoop = loopTrip;
+#endif
+ 
         // empty slot, not in table
         return const_iterator(this);
       } else if (table[h].first == key) {
+#ifdef PROFILE_CLASH
+	gLoop += loopTrip;	
+	if (loopTrip > gMaxLoop)
+		gMaxLoop = loopTrip;
+#endif
+ 
         // same key, found
         return const_iterator(this, h);
       }

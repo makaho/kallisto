@@ -31,6 +31,9 @@ ENDIF(LINK MATCHES static)
 
 # add_compile_options(-Wdeprecated-register)
 
+include_directories("/home/chabbim/software/hdf5-1.8.20-install/include/")
+link_directories("/home/chabbim/software/hdf5-1.8.20-install/lib/")
+
 add_subdirectory(src)
 include_directories(${EXT_PROJECTS_DIR})
 

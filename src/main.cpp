@@ -23,6 +23,14 @@
 #include "Bootstrap.h"
 #include "H5Writer.h"
 
+#define PROFILE_CLASH
+
+#ifdef PROFILE_CLASH
+        uint64_t gLoop = 0;
+	uint64_t gMaxLoop = 0;
+	uint64_t gInvoke = 0;
+#endif
+
 
 //#define ERROR_STR "\033[1mError:\033[0m"
 #define ERROR_STR "Error:"
@@ -2109,6 +2117,11 @@ int main(int argc, char *argv[]) {
     }
 
   }
+
+
+#ifdef PROFILE_CLASH
+  std::cout << "HASH PROFILE: gInvoke: "<< gInvoke << " gLoop: " << gLoop << " AVG: " << 1.0 * gLoop / gInvoke << " gMaxLoop: "  << gMaxLoop << "\n";
+#endif
 
   fflush(stdout);
 
