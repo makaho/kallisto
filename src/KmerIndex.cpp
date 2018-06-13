@@ -9,7 +9,8 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include <time.h> 
+#include <time.h>
+
 
 #ifndef KSEQ_INIT_READY
 #define KSEQ_INIT_READY
@@ -806,11 +807,26 @@ void KmerIndex::load(ProgramOptions& opt, bool loadKmerTable) {
   }
 
   map_fd = open(index_in.c_str(), O_RDONLY);
-  index_map = (char *)mmap(0, sbuf.st_size, PROT_READ, MAP_SHARED, map_fd, 0);
-  if (index_map == (caddr_t)(-1)) {
-	  perror("mmap failed");
-	  exit(1);
-  }
+////////////////////////////////////////
+    FILE * f;
+    f = fopen(index_in.c_str(), "rb");
+    index_map = new char[sbuf.st_size+1];
+    if (index_map == NULL) {
+        perror("allocation for input 1 failed");
+        exit(1);
+    }
+    //TODO: LOAD all from file
+    if (fread(index_map, sizeof(char), sbuf.st_size, f) <= 0) {
+        perror("Cannot read from file");
+        exit(2);
+    }
+    fclose(f);
+    
+  //index_map = (char *)mmap(0, sbuf.st_size, PROT_READ, MAP_SHARED, map_fd, 0);
+  //if (index_map == (caddr_t)(-1)) {
+	//  perror("mmap failed");
+	//  exit(1);
+  //}
  
   // 1. read version
   size_t header_version = *(size_t*)(index_map+index_map_offset);

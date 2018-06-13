@@ -13,7 +13,6 @@ add_executable(kallisto main.cpp)
 find_package( Threads REQUIRED )
 target_link_libraries(kallisto kallisto_core pthread)
 
-if(LINK MATCHES static)
     set(BUILD_SHARED_LIBS OFF)
     set(HDF5_USE_STATIC_LIBRARIES 1)
 
@@ -25,7 +24,6 @@ if(LINK MATCHES static)
     endif(UNIX AND NOT APPLE)
 
     SET_TARGET_PROPERTIES(kallisto kallisto_core PROPERTIES LINK_SEARCH_END_STATIC 1)
-endif(LINK MATCHES static)
 
 find_package( HDF5 REQUIRED )
 find_package( ZLIB REQUIRED )
@@ -45,16 +43,9 @@ else()
 endif()
 
 
-if(LINK MATCHES static)
     if (UNIX AND NOT APPLE)
         target_link_libraries(kallisto librt.a)
     endif()
-else()
-    if (UNIX AND NOT APPLE)
-        target_link_libraries(kallisto rt)
-    endif()
-endif(LINK MATCHES static)
-
 
 
 install(TARGETS kallisto DESTINATION bin)

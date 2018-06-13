@@ -15,6 +15,7 @@
 */
 
 #include <fstream>
+#include <stdio.h>
 
 #include "ProcessReads.h"
 #include "kseq.h"
@@ -224,7 +225,8 @@ void MasterProcessor::processReads() {
 
 	//my test
 	struct stat sf1, sf2;
-	int pf1, pf2;
+    FILE* f;
+    int pf1, pf2;
 	char* mf1, *mf2;
 	unsigned long of1, of2;
 
@@ -232,8 +234,19 @@ void MasterProcessor::processReads() {
 		perror("stat failed");
 		exit(1);
 	}	
-	pf1 = open(opt.files[0].c_str(), O_RDONLY);
-	mf1 = (char *)mmap(0, sf1.st_size, PROT_READ, MAP_SHARED, pf1, 0);
+	f = fopen(opt.files[0].c_str(), "rb");
+    mf1 = new char[sf1.st_size+1];
+    if (mf1 == NULL) {
+        perror("allocation for input 1 failed");
+        exit(1);
+    }
+	//TODO: LOAD all from file
+    if (fread(mf1, sizeof(char), sf1.st_size, f) <= 0) {
+        perror("Cannot read from file");
+        exit(2);
+    }
+    fclose(f);
+    //initial offset is 0
 	of1 = 0;
 
 	if (!opt.single_end) {
@@ -1314,8 +1327,9 @@ void ReadProcessor::clear() {
 /** -- sequence reader -- **/
 SequenceReader::~SequenceReader() {
 	if (pf1) {
-		munmap((void*)mf1, sf1.st_size);
-		close(pf1);
+		//munmap((void*)mf1, sf1.st_size);
+        delete [] mf1;
+		//close(pf1);
 	}
 	if (paired && pf2) {
 		munmap((void*)mf2, sf2.st_size);
